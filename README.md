@@ -17,7 +17,17 @@ A from-scratch PyTorch implementation of [TurboQuant](https://arxiv.org/abs/2504
 | 65K | 0.9 tok/s | 9.6 GB | **FOUND** |
 | 93K | 2.2 tok/s | 12.8 GB | **FOUND** (RTX 5090) |
 
-FP16 baseline: ~40-50 tok/s. RotorQuant trades speed for memory — it's a **memory optimization**, not a speed optimization. The quantize/dequantize overhead slows generation, but enables fitting much longer contexts in VRAM.
+FP16 baseline: ~40-50 tok/s at short contexts. RotorQuant trades speed for memory at long contexts, enabling fitting much longer sequences in VRAM.
+
+### Speed Overhead at Short Contexts (RTX 5090)
+
+| Prompt | FP16 | RQ 3-bit | RQ 4-bit | Slowdown |
+|--------|------|----------|----------|----------|
+| Short (36 tok in, ~9 gen) | 33.2 tok/s | 26.9 tok/s | 28.8 tok/s | **~19%** |
+| Medium (40 tok in, 100 gen) | 35.3 tok/s | 29.5 tok/s | 29.2 tok/s | **~17%** |
+| Long (57 tok in, 200 gen) | 36.7 tok/s | 31.5 tok/s | 32.6 tok/s | **~12%** |
+
+At short contexts, RotorQuant is only **12-19% slower** than FP16 — the per-token quantize + clone is cheap. The larger slowdowns seen at 32K-93K contexts come from the one-time bulk quantization of the prefill cache on the first decode step.
 
 ### MSE Quality (after codebook fix)
 
