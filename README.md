@@ -15,18 +15,18 @@ RotorQuant matches Google TurboQuant's quality claims while using Clifford rotor
 | **MSE vs FP16** | Near-optimal | **1.0x ratio** (identical to TQ) | **MATCH** |
 | **Parameters** | 16,384 per head | **~380** (44x fewer) | **RQ wins** |
 | **FMAs** | 16,384 per vector | **2,064** (7.9x fewer) | **RQ wins** |
-| **Compression** | 4.9x at 3-bit | 3.7x at 3-bit | TQ wins (1.3x) |
+| **Compression (3-bit)** | 4.9x | **4.9x** | **MATCH** |
+| **Compression (2-bit)** | 7.1x | **7.1x** | **MATCH** |
 
-Tested on Qwen2.5-3B-Instruct, Qwen2.5-7B-Instruct, and Phi-4-mini-instruct (RTX 5090).
+Tested on Google's models (Gemma-2-2b, Mistral-7B) plus Qwen2.5-3B, Qwen2.5-7B, and Phi-4-mini (RTX 5090).
 
 ### Perplexity (wikitext-2, autoregressive with post-prefill quantization)
 
-| Method | PPL | Delta | Status |
-|--------|-----|-------|--------|
-| FP16 baseline | 9.81 | — | — |
-| **RQ 4-bit** | **10.13** | **+3.2%** | Essentially lossless |
-| **RQ 3-bit** | **12.28** | **+25.2%** | Usable |
-| RQ 2-bit | 22.78 | +132% | High degradation |
+| Model | KV Heads | FP16 PPL | RQ 4-bit | Delta | RQ 3-bit | Delta |
+|-------|----------|---------|---------|-------|---------|-------|
+| **Mistral-7B** | 8 | 4.80 | **5.16** | **+7.4%** | 5.53 | +15.3% |
+| **Gemma-2-2b** | 4 | 8.87 | **9.77** | **+10.1%** | 10.64 | +19.9% |
+| Qwen2.5-3B | 2 | 9.81 | **10.13** | **+3.2%** | 12.28 | +25.2% |
 
 ### High-Context Generation
 
@@ -67,12 +67,12 @@ Replaces the d×d matrix with **Clifford rotors** in Cl(3,0). Chunks the vector 
 | Rotation | 16,384 FMAs (dense matmul) | **2,064 FMAs** (sparse per-group) | **7.9x fewer** |
 | Full pipeline | 33,792 FMAs | **4,816 FMAs** | **7.0x fewer** |
 | Parameters | 16,384 | **~380** | **~44x fewer** |
-| Stored indices | 128/vector | 172/vector | 1.3x more |
-| Compression (3-bit) | 4.9x | 3.7x | TQ wins |
+| Stored indices | 128/vector | 129/vector | ~same |
+| Compression (3-bit) | 4.9x | **4.9x** | **MATCH** |
 
 ### Key Innovations
 
-**Zero-grade elimination**: The rotor sandwich of a grade-1 vector produces ONLY odd grades (vector + trivector). Scalar and bivector components are always zero — skipping them halves storage from 344 to 172 indices per vector.
+**Grade elimination**: The rotor sandwich of a grade-1 vector produces only odd grades. Scalar and bivector are always zero (skip). Trivector (e123) is non-zero but never read by `extract_vectors` (which only takes grade-1). Dropping all non-vector grades cuts storage from 344 → 129 indices per vector, matching TurboQuant's 128.
 
 **Norm separation**: Normalize to unit sphere before quantization, store norms separately. Combined with correct `d_eff` for Lloyd-Max codebook, this brought MSE from 2-4x worse than TQ to exactly 1.0x.
 
@@ -96,10 +96,9 @@ from turboquant import RotorQuantMSE, pack_rotors_for_triton, triton_rotor_full_
 rq = RotorQuantMSE(d=128, bits=3, device="cuda")
 packed_rotors = pack_rotors_for_triton(rq.rotors)
 c_v = rq.centroids_vector
-c_t = rq.centroids_trivector
 
 # Triton fused quantize-dequantize (200-650x faster than PyTorch)
-x_hat = triton_rotor_full_fused(x, packed_rotors, None, c_v, None, c_t)
+x_hat = triton_rotor_full_fused(x, packed_rotors, None, c_v, None, c_v)
 ```
 
 ## Scripts
@@ -151,8 +150,8 @@ pip install -e ".[validate]"        # + model validation deps (transformers, bit
 
 | Scenario | Recommendation |
 |----------|---------------|
-| KV cache compression (quality priority) | **RotorQuant 4-bit** (+3.2% PPL, 2.8x compression) |
-| KV cache compression (compression priority) | TurboQuant 3-bit (4.9x compression) |
+| KV cache compression (quality) | **RotorQuant 4-bit** (+3-10% PPL, 3.7x compression) |
+| KV cache compression (size) | **RotorQuant 3-bit** (4.9x, matches TQ, 44x fewer params) |
 | Long context on limited VRAM | **RotorQuant 3-bit + post-prefill** (65K tokens on 10 GB) |
 | Parameter-constrained (edge/mobile) | RotorQuant (44x fewer params) |
 | Apple Silicon | RotorQuant + Metal shader |
