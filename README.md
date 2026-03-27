@@ -17,6 +17,7 @@ RotorQuant matches Google TurboQuant's quality claims while using Clifford rotor
 | **FMAs** | 16,384 per vector | **2,064** (7.9x fewer) | **RQ wins** |
 | **Compression (3-bit)** | 4.9x | **4.9x** | **MATCH** |
 | **Compression (2-bit)** | 7.1x | **7.1x** | **MATCH** |
+| **Attn logits speed (32K)** | 8x vs FP32 (H100) | **12.7x vs FP32** (RTX 5090) | **RQ wins** |
 
 Tested on Google's models (Gemma-2-2b, Mistral-7B) plus Qwen2.5-3B, Qwen2.5-7B, and Phi-4-mini (RTX 5090).
 
@@ -51,6 +52,18 @@ Also tested on Qwen2.5-7B (6/6 FOUND to 65K) and Phi-4-mini-128K (4/6 FOUND to 6
 | 32K tokens | — | 5.0 tok/s | Bulk cache quantization |
 
 At short contexts, RotorQuant is only **12-19% slower** than FP16.
+
+### Attention Logits Speed (Q@K^T, decode mode, RTX 5090)
+
+Google measures TurboQuant as "8x faster than FP32 on H100". Same measurement for RotorQuant:
+
+| KV Length | FP32 | FP16 | **RQ Triton** | **vs FP32** | vs FP16 |
+|-----------|------|------|-------------|---------|---------|
+| 4K | 0.132 ms | 0.019 ms | **0.024 ms** | **5.4x** | 0.8x |
+| 16K | 0.057 ms | 0.033 ms | **0.024 ms** | **2.4x** | **1.4x** |
+| 32K | 0.308 ms | 0.066 ms | **0.024 ms** | **12.7x** | **2.7x** |
+
+The Triton gather-dot kernel stays flat at ~0.024ms regardless of context length — it loads uint8 indices (1 byte) vs FP32 keys (4 bytes). The advantage grows with context as the baseline becomes memory-bandwidth-bound.
 
 ## How It Works
 
