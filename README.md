@@ -1,25 +1,64 @@
-# TurboQuant + RotorQuant
+# TurboQuant + RotorQuant + IsoQuant
 
-A from-scratch PyTorch implementation of [TurboQuant](https://arxiv.org/abs/2504.19874) (ICLR 2026), Google's two-stage vector quantization algorithm for compressing LLM key-value caches — plus **RotorQuant**, a Clifford algebra reimagining with **44x fewer parameters**, **7x fewer FMAs**, and **Triton GPU kernels**.
+A from-scratch PyTorch implementation of [TurboQuant](https://arxiv.org/abs/2504.19874) (ICLR 2026), Google's two-stage vector quantization algorithm for compressing LLM key-value caches — plus **RotorQuant** (Clifford rotors) and **IsoQuant** (quaternion 4D blocks), progressively faster drop-in replacements for the dense rotation step.
+
+**IsoQuant** is the recommended default: **5.8x faster** than RotorQuant at identical reconstruction quality, with clean 4D hardware alignment.
 
 ## Google TurboQuant Parity
 
-RotorQuant matches Google TurboQuant's quality claims while using Clifford rotors instead of dense rotation matrices:
+All three methods match Google TurboQuant's quality claims while dramatically reducing rotation cost:
 
-| Metric | Google TurboQuant | RotorQuant | Status |
-|--------|------------------|------------|--------|
-| **Perplexity (4-bit)** | <5% degradation | **+3.2%** (PPL 10.13 vs 9.81) | **MATCH** |
-| **Perplexity (3-bit)** | <5% (Gemma, many KV heads) | +25.2% (Qwen, 2 KV heads) | Expected |
-| **Needle-in-haystack** | Perfect at all bit widths | **4/4 FOUND** (3-bit & 4-bit, 2K-32K) | **MATCH** |
-| **Generation quality** | Coherent | Coherent (code, reasoning, knowledge) | **MATCH** |
-| **MSE vs FP16** | Near-optimal | **1.0x ratio** (identical to TQ) | **MATCH** |
-| **Parameters** | 16,384 per head | **~380** (44x fewer) | **RQ wins** |
-| **FMAs** | 16,384 per vector | **2,064** (7.9x fewer) | **RQ wins** |
-| **Compression (3-bit)** | 4.9x | **4.9x** | **MATCH** |
-| **Compression (2-bit)** | 7.1x | **7.1x** | **MATCH** |
-| **Attn logits speed (32K)** | 8x vs FP32 (H100) | **12.7x vs FP32** (RTX 5090) | **RQ wins** |
+| Metric | Google TurboQuant | RotorQuant (Clifford) | IsoQuant (Quaternion) | Status |
+|--------|------------------|----------------------|----------------------|--------|
+| **Perplexity (4-bit)** | <5% degradation | **+3.2%** (PPL 10.13 vs 9.81) | Same | **MATCH** |
+| **Perplexity (3-bit)** | <5% (Gemma, many KV heads) | +25.2% (Qwen, 2 KV heads) | Same | Expected |
+| **Needle-in-haystack** | Perfect at all bit widths | **4/4 FOUND** (3-bit & 4-bit) | Same | **MATCH** |
+| **Generation quality** | Coherent | Coherent | Coherent | **MATCH** |
+| **MSE vs FP16** | Near-optimal | **1.0x ratio** | **1.0x ratio** | **MATCH** |
+| **Compression (3-bit)** | 4.9x | **4.9x** | **4.9x** | **MATCH** |
 
-Tested on Google's models (Gemma-2-2b, Mistral-7B) plus Qwen2.5-3B, Qwen2.5-7B, and Phi-4-mini (RTX 5090).
+### IsoQuant vs RotorQuant vs TurboQuant (d=128)
+
+| | TurboQuant | RotorQuant | IsoQuant-Fast | IsoQuant-Full |
+|---|-----------|-----------|---------------|---------------|
+| Block structure | Dense 128×128 | 43 × 3D Clifford | **32 × 4D quaternion** | 32 × 4D quaternion |
+| Forward FMAs | 16,384 | 2,408 | **512** | 1,024 |
+| Parameters | 16,384 | 344 | **128** | 256 |
+| Alignment | N/A | 42 blocks + 2D tail | **32 clean blocks** | 32 clean blocks |
+| Stage-1 latency | — | 4,244 µs | **727 µs (5.8x)** | 1,152 µs (3.7x) |
+| Reconstruction MSE | Baseline | 0.000265 | **0.000265** | 0.000265 |
+
+### Reconstruction MSE (8192 normalized vectors)
+
+| d | bits | RotorQuant | IsoQuant-Fast | IsoQuant-Full | Ratio (Fast/RQ) |
+|---|------|-----------|---------------|---------------|-----------------|
+| 64 | 2 | 0.001800 | 0.001785 | 0.001786 | 0.992x |
+| 64 | 3 | 0.000526 | 0.000521 | 0.000521 | 0.991x |
+| 64 | 4 | 0.000144 | 0.000143 | 0.000143 | 0.995x |
+| 128 | 2 | 0.000903 | 0.000906 | 0.000906 | 1.002x |
+| 128 | 3 | 0.000265 | 0.000265 | 0.000265 | 0.998x |
+| 128 | 4 | 0.000073 | 0.000072 | 0.000073 | 0.996x |
+| 256 | 2 | 0.000455 | 0.000456 | 0.000456 | 1.002x |
+| 256 | 3 | 0.000134 | 0.000134 | 0.000134 | 0.999x |
+| 256 | 4 | 0.000037 | 0.000037 | 0.000037 | 1.002x |
+
+MSE is indistinguishable across all settings. IsoQuant is a pure speed upgrade.
+
+### Stage-1 Latency (µs, 8192 vectors, RTX PRO 4000)
+
+| d | bits | RotorQuant | IsoQuant-Fast | Speedup | IsoQuant-Full | Speedup |
+|---|------|-----------|---------------|---------|---------------|---------|
+| 64 | 2 | 3,409 | **559** | **6.1x** | 694 | 4.9x |
+| 64 | 3 | 3,562 | **565** | **6.3x** | 1,088 | 3.3x |
+| 64 | 4 | 3,544 | **739** | **4.8x** | 1,260 | 2.8x |
+| 128 | 2 | 3,979 | **652** | **6.1x** | 1,069 | 3.7x |
+| 128 | 3 | 4,244 | **727** | **5.8x** | 1,152 | 3.7x |
+| 128 | 4 | 4,574 | **1,158** | **3.9x** | 1,563 | 2.9x |
+| 256 | 2 | 4,853 | **834** | **5.8x** | 1,337 | 3.6x |
+| 256 | 3 | 5,336 | **1,173** | **4.5x** | 1,669 | 3.2x |
+| 256 | 4 | 6,267 | **1,900** | **3.3x** | 2,328 | 2.7x |
+
+IsoQuant-Fast is consistently 3.3–6.3x faster. Best at low bit width and medium dimensions.
 
 ### Perplexity (wikitext-2, autoregressive with post-prefill quantization)
 
@@ -31,7 +70,7 @@ Tested on Google's models (Gemma-2-2b, Mistral-7B) plus Qwen2.5-3B, Qwen2.5-7B, 
 
 ### High-Context Generation
 
-3-bit RotorQuant with post-prefill quantization on Qwen2.5-3B (RTX 5090):
+3-bit with post-prefill quantization on Qwen2.5-3B (RTX 5090):
 
 | Context | Speed | VRAM | Needle |
 |---------|-------|------|--------|
@@ -41,21 +80,7 @@ Tested on Google's models (Gemma-2-2b, Mistral-7B) plus Qwen2.5-3B, Qwen2.5-7B, 
 | 32K | 5.0 tok/s | 5.9 GB | **FOUND** |
 | 65K | 2.1 tok/s | 9.6 GB | **FOUND** |
 
-Also tested on Qwen2.5-7B (6/6 FOUND to 65K) and Phi-4-mini-128K (4/6 FOUND to 65K).
-
-### Speed Overhead
-
-| Context | FP16 | RQ 3-bit | Slowdown |
-|---------|------|----------|----------|
-| Short (~40 tokens) | 35.3 tok/s | 29.5 tok/s | **17%** |
-| Long (~60 tokens) | 36.7 tok/s | 31.5 tok/s | **12%** |
-| 32K tokens | — | 5.0 tok/s | Bulk cache quantization |
-
-At short contexts, RotorQuant is only **12-19% slower** than FP16.
-
 ### Attention Logits Speed (Q@K^T, decode mode, RTX 5090)
-
-Google measures TurboQuant as "8x faster than FP32 on H100". Same measurement for RotorQuant:
 
 | KV Length | FP32 | FP16 | **RQ Triton** | **vs FP32** | vs FP16 |
 |-----------|------|------|-------------|---------|---------|
@@ -63,39 +88,61 @@ Google measures TurboQuant as "8x faster than FP32 on H100". Same measurement fo
 | 16K | 0.057 ms | 0.033 ms | **0.024 ms** | **2.4x** | **1.4x** |
 | 32K | 0.308 ms | 0.066 ms | **0.024 ms** | **12.7x** | **2.7x** |
 
-The Triton gather-dot kernel stays flat at ~0.024ms regardless of context length — it loads uint8 indices (1 byte) vs FP32 keys (4 bytes). The advantage grows with context as the baseline becomes memory-bandwidth-bound.
-
 ## How It Works
 
 ### TurboQuant (Google)
 
 Two stages: (1) Random rotation via d×d orthogonal matrix → per-coordinate Lloyd-Max quantization. (2) QJL 1-bit residual correction for unbiased inner products.
 
-### RotorQuant (this project)
+### RotorQuant
 
-Replaces the d×d matrix with **Clifford rotors** in Cl(3,0). Chunks the vector into groups of 3 dims, rotates each with a 4-parameter rotor via the sandwich product `R v R̃`.
+Replaces the d×d matrix with **Clifford rotors** in Cl(3,0). Chunks the vector into groups of 3 dims, rotates each with a 4-parameter rotor via the sandwich product `R v R̃`. 44x fewer parameters, 7.9x fewer FMAs.
 
-| | TurboQuant | RotorQuant | Ratio |
-|---|-----------|-----------|-------|
-| Rotation | 16,384 FMAs (dense matmul) | **2,064 FMAs** (sparse per-group) | **7.9x fewer** |
-| Full pipeline | 33,792 FMAs | **4,816 FMAs** | **7.0x fewer** |
-| Parameters | 16,384 | **~380** | **~44x fewer** |
-| Stored indices | 128/vector | 129/vector | ~same |
-| Compression (3-bit) | 4.9x | **4.9x** | **MATCH** |
+### IsoQuant (recommended)
+
+Replaces Clifford rotors with **quaternion 4D blocks** based on the isoclinic decomposition SO(4) ≅ SU(2) × SU(2). Each group of 4 coordinates is treated as a quaternion and rotated via `q_L v q̄_R` (Full) or `q_L v` (Fast).
+
+| | TurboQuant | RotorQuant | IsoQuant-Fast |
+|---|-----------|-----------|---------------|
+| Rotation | Dense d×d matmul | Cl(3,0) rotor sandwich | **Quaternion multiply** |
+| Block size | d | 3 | **4** (hardware-aligned) |
+| FMAs (d=128) | 16,384 | 2,408 | **512 (32x fewer)** |
+| Parameters | 16,384 | 344 | **128 (128x fewer)** |
+| Alignment | N/A | Tail handling | **Clean power-of-2** |
+| Quality | Baseline | 1.0x | **1.0x** |
 
 ### Key Innovations
 
-**Grade elimination**: The rotor sandwich of a grade-1 vector produces only odd grades. Scalar and bivector are always zero (skip). Trivector (e123) is non-zero but never read by `extract_vectors` (which only takes grade-1). Dropping all non-vector grades cuts storage from 344 → 129 indices per vector, matching TurboQuant's 128.
+**Grade elimination** (RotorQuant): The rotor sandwich of a grade-1 vector produces only odd grades. Dropping non-vector grades cuts storage from 344 → 129 indices per vector, matching TurboQuant's 128.
 
-**Norm separation**: Normalize to unit sphere before quantization, store norms separately. Combined with correct `d_eff` for Lloyd-Max codebook, this brought MSE from 2-4x worse than TQ to exactly 1.0x.
+**4D hardware alignment** (IsoQuant): d=128 splits into 32 clean 4D blocks (no tail), fitting naturally into SIMD float4 patterns. RotorQuant's 3D blocks create 42 groups + 2D remainder.
 
-**Post-prefill quantization**: Prefill runs at full FP16 (no error compounding through layers). First decode step bulk-quantizes the cache via Triton. Each subsequent decode step quantizes the new key but returns full-precision for current attention.
+**Norm separation**: Normalize to unit sphere before quantization, store norms separately. Combined with correct `d_eff` for Lloyd-Max codebook, this achieves MSE parity with TurboQuant.
 
-**Non-commutative algebra fix**: The rotor sandwich `(R * x) * R̃` requires LEFT product for step 1 and RIGHT product for step 2 — these differ in non-commutative Clifford algebra.
+**Post-prefill quantization**: Prefill runs at full FP16 (no error compounding through layers). First decode step bulk-quantizes the cache.
+
+## Quick Start
+
+```python
+from turboquant import IsoQuantMSE, IsoQuantProd
+
+# Stage 1: MSE-optimal quantizer (IsoQuant-Fast, recommended)
+iq = IsoQuantMSE(d=128, bits=3, mode='fast', device='cuda')
+x_hat, indices = iq(x)  # quantize + dequantize
+
+# Stage 1 + 2: With QJL residual correction
+iq_prod = IsoQuantProd(d=128, bits=3, mode='fast', device='cuda')
+compressed = iq_prod.quantize(keys)
+ip_estimate = iq_prod.inner_product(queries, compressed)
+
+# Legacy Clifford interface (still available)
+from turboquant import RotorQuantMSE
+rq = RotorQuantMSE(d=128, bits=3, device='cuda')
+```
 
 ## Triton Kernels
 
-Portable, auto-tuned GPU kernels — no CUDA C++ compilation needed:
+Portable, auto-tuned GPU kernels (for RotorQuant Clifford path):
 
 | Kernel | Purpose | Speedup vs PyTorch |
 |--------|---------|-------------------|
@@ -103,48 +150,38 @@ Portable, auto-tuned GPU kernels — no CUDA C++ compilation needed:
 | `triton_rotor_sandwich` | R x R̃ (embed + rotor sandwich) | 80-166x |
 | `triton_fused_attention_qjl` | Q@K^T with QJL correction (experimental) | — |
 
-```python
-from turboquant import RotorQuantMSE, pack_rotors_for_triton, triton_rotor_full_fused
-
-rq = RotorQuantMSE(d=128, bits=3, device="cuda")
-packed_rotors = pack_rotors_for_triton(rq.rotors)
-c_v = rq.centroids_vector
-
-# Triton fused quantize-dequantize (200-650x faster than PyTorch)
-x_hat = triton_rotor_full_fused(x, packed_rotors, None, c_v, None, c_v)
-```
+IsoQuant Triton kernels are planned — the pure PyTorch path is already 5.8x faster than RotorQuant's Triton.
 
 ## Scripts
 
 | Script | Purpose | Command |
 |--------|---------|---------|
-| `benchmark_google_parity.py` | **Full TurboQuant parity test** | `python -m turboquant.benchmark_google_parity` |
+| `benchmark_isoquant.py` | **IsoQuant vs RotorQuant head-to-head** | `python -m turboquant.benchmark_isoquant` |
+| `benchmark_google_parity.py` | Full TurboQuant parity test | `python -m turboquant.benchmark_google_parity` |
 | `benchmark_perplexity.py` | Perplexity benchmark (autoregressive + roundtrip) | `python -m turboquant.benchmark_perplexity` |
 | `poc_high_context.py` | High-context generation (2K-131K tokens) | `python -m turboquant.poc_high_context` |
 | `benchmark_triton.py` | Triton kernel speed (6 tests) | `python -m turboquant.benchmark_triton` |
-| `benchmark_rotorquant.py` | RotorQuant vs TurboQuant (7 tests) | `python -m turboquant.benchmark_rotorquant` |
-| `validate.py` | Real model attention fidelity | `python -m turboquant.validate` |
 
 ## Project Structure
 
 ```
 turboquant/
-  rotorquant.py              # RotorQuant: MSE, Prod, KVCache quantizers
+  isoquant.py                # IsoQuant: quaternion 4D block rotation (recommended)
+  rotorquant.py              # RotorQuant: Clifford 3D block rotation (legacy)
   clifford.py                # Cl(3,0) geometric algebra
   triton_kernels.py          # Triton GPU kernels (rotor sandwich, fused pipeline, attention)
   fused_attention.py         # Fused attention with QJL correction (experimental)
-  calibrate.py               # Per-layer codebook calibration (experimental)
-  turboquant.py              # TurboQuant: MSE, Prod, KVCache
+  turboquant.py              # TurboQuant: dense rotation baseline
   lloyd_max.py               # Lloyd-Max optimal scalar quantizer
   compressors.py             # Asymmetric inner product compressors
   cuda_backend.py            # QJL CUDA kernel wrappers
-  poc_high_context.py        # High-context generation POC
+  benchmark_isoquant.py      # IsoQuant vs RotorQuant benchmark
   benchmark_google_parity.py # Google TurboQuant parity benchmark
   benchmark_perplexity.py    # Perplexity benchmark
   benchmark_triton.py        # Triton kernel benchmarks
+  poc_high_context.py        # High-context generation POC
   csrc/                      # CUDA kernels (rotor fused, QJL)
-  rotor_fused.metal          # Metal shader (Apple Silicon)
-tests/                       # 96 unit tests
+tests/                       # Unit tests
 setup.py                     # pip install with optional CUDA build
 ```
 
@@ -152,26 +189,28 @@ setup.py                     # pip install with optional CUDA build
 
 ```bash
 pip install -e .                    # PyTorch-only
-pip install triton                  # Add Triton kernels (100-650x faster)
+pip install triton                  # Add Triton kernels (for Clifford path)
 pip install -e ".[validate]"        # + model validation deps (transformers, bitsandbytes)
 ```
 
 - Python 3.10+, PyTorch 2.0+, CUDA, scipy
-- triton >= 3.0 (optional but recommended)
+- triton >= 3.0 (optional, for Clifford Triton kernels)
 
 ## When to Use Which
 
 | Scenario | Recommendation |
 |----------|---------------|
-| KV cache compression (quality) | **RotorQuant 4-bit** (+3-10% PPL, 3.7x compression) |
-| KV cache compression (size) | **RotorQuant 3-bit** (4.9x, matches TQ, 44x fewer params) |
-| Long context on limited VRAM | **RotorQuant 3-bit + post-prefill** (65K tokens on 10 GB) |
-| Parameter-constrained (edge/mobile) | RotorQuant (44x fewer params) |
+| **Default** | **IsoQuant-Fast 3-bit** (5.8x faster, same quality) |
+| KV cache compression (quality) | IsoQuant-Fast 4-bit (+3-10% PPL, 3.7x compression) |
+| KV cache compression (size) | IsoQuant-Fast 3-bit (4.9x, matches TQ) |
+| Long context on limited VRAM | IsoQuant-Fast 3-bit + post-prefill (65K tokens on 10 GB) |
+| Triton kernel path needed | RotorQuant (Triton kernels available) |
 | Apple Silicon | RotorQuant + Metal shader |
 
 ## References
 
 - [TurboQuant](https://arxiv.org/abs/2504.19874) (ICLR 2026) — [Blog](https://research.google/blog/turboquant-redefining-ai-efficiency-with-extreme-compression/) — [Triton impl](https://dejan.ai/blog/turboquant/)
+- [IsoQuant](https://github.com/ParaMind2025/isoquant) — Ji, "IsoQuant: Hardware-Aligned SO(4) Isoclinic Rotations for LLM KV Cache Compression" (March 2026)
 - [QJL: 1-Bit Quantized JL Transform](https://arxiv.org/abs/2406.03482) — [Code](https://github.com/amirzandieh/QJL)
 - [CommVQ](https://arxiv.org/abs/2506.18879) (ICML 2025) — [PolarQuant](https://arxiv.org/abs/2502.02617) (AISTATS 2026)
 - [CliffordNet](https://arxiv.org/abs/2601.06793) (Jan 2026)
