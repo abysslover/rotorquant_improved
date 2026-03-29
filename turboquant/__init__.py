@@ -12,6 +12,10 @@ QuantProd = IsoQuantProd
 
 # Triton kernels (optional, requires triton >= 3.0)
 try:
+    from .triton_isoquant import (
+        triton_iso_full_fused,
+        triton_iso_fast_fused,
+    )
     from .triton_kernels import (
         triton_rotor_sandwich,
         triton_rotor_full_fused,
