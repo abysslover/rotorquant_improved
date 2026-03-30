@@ -1,8 +1,8 @@
 # TurboQuant + RotorQuant + IsoQuant
 
-A from-scratch PyTorch implementation of [TurboQuant](https://arxiv.org/abs/2504.19874) (ICLR 2026), Google's two-stage vector quantization algorithm for compressing LLM key-value caches — plus **RotorQuant** (Clifford rotors) and **[IsoQuant](turboquant/isoquant.py)** (quaternion 4D blocks), progressively faster drop-in replacements for the dense rotation step.
+A from-scratch PyTorch implementation of [TurboQuant](https://arxiv.org/abs/2504.19874) (ICLR 2026), Google's two-stage vector quantization algorithm for compressing LLM key-value caches — plus **RotorQuant** (Clifford rotors) and **[IsoQuant](https://github.com/ParaMind2025/isoquant)** (quaternion 4D blocks, [local impl](turboquant/isoquant.py)), progressively faster drop-in replacements for the dense rotation step.
 
-**[IsoQuant](turboquant/isoquant.py)** is the recommended default: **5.8x faster** than RotorQuant at identical reconstruction quality, with clean 4D hardware alignment.
+**[IsoQuant](https://github.com/ParaMind2025/isoquant)** is the recommended default: **5.8x faster** than RotorQuant at identical reconstruction quality, with clean 4D hardware alignment.
 
 ## Head-to-Head vs Reference TurboQuant
 
@@ -350,7 +350,7 @@ pip install -e ".[validate]"        # + model validation deps (transformers, bit
 
 - [TurboQuant](https://arxiv.org/abs/2504.19874) (ICLR 2026) — [Blog](https://research.google/blog/turboquant-redefining-ai-efficiency-with-extreme-compression/) — [Triton impl](https://dejan.ai/blog/turboquant/)
 - [back2matching/turboquant](https://github.com/back2matching/turboquant) — Reference open-source TurboQuant (pip install turboquant)
-- [IsoQuant](turboquant/isoquant.py) — Hardware-aligned SO(4) isoclinic rotations for LLM KV cache compression (quaternion 4D blocks, 5.8x faster than Clifford)
+- [IsoQuant](https://github.com/ParaMind2025/isoquant) — Ji, "IsoQuant: Hardware-Aligned SO(4) Isoclinic Rotations for LLM KV Cache Compression" (March 2026)
 - [QJL: 1-Bit Quantized JL Transform](https://arxiv.org/abs/2406.03482) — [Code](https://github.com/amirzandieh/QJL)
 - [CommVQ](https://arxiv.org/abs/2506.18879) (ICML 2025) — [PolarQuant](https://arxiv.org/abs/2502.02617) (AISTATS 2026)
 - [CliffordNet](https://arxiv.org/abs/2601.06793) (Jan 2026)
