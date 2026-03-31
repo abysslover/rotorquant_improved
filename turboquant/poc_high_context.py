@@ -26,6 +26,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from turboquant.isoquant import IsoQuantMSE
 from turboquant.triton_isoquant import triton_iso_fast_fused
 
+# PlanarQuant path (--backend planar)
+from turboquant.planarquant import PlanarQuantMSE
+from turboquant.triton_planarquant import triton_planar2_fused
+
 # Legacy Clifford path (--backend clifford)
 from turboquant.rotorquant import RotorQuantMSE
 from turboquant.triton_kernels import (
@@ -75,11 +79,33 @@ class RotorQuantKeyCompressor:
         return flat_recon.to(orig_dtype).reshape(B, H, S, D)
 
 
+class PlanarQuantKeyCompressor:
+    """Per-layer key compressor using PlanarQuant + Triton fused kernel."""
+
+    def __init__(self, head_dim: int, bits: int, seed: int, device: str):
+        self.pq = PlanarQuantMSE(head_dim, bits, seed=seed, device=device)
+        self.rot2 = self.pq.rot2.to(device)
+        self.centroids = self.pq.centroids.to(device)
+        self.head_dim = head_dim
+        self.device = device
+
+    @torch.no_grad()
+    def compress_dequantize(self, keys: torch.Tensor) -> torch.Tensor:
+        B, H, S, D = keys.shape
+        orig_dtype = keys.dtype
+        key_device = keys.device
+        flat = keys.reshape(-1, D).to(self.device)
+        flat_recon = triton_planar2_fused(flat, self.rot2, self.centroids)
+        return flat_recon.to(orig_dtype).to(key_device).reshape(B, H, S, D)
+
+
 class ValueCompressor:
     """Per-layer value compressor — wraps either backend."""
 
     def __init__(self, head_dim: int, bits: int, seed: int, device: str, backend: str = 'iso'):
-        if backend == 'iso':
+        if backend == 'planar':
+            self.inner = PlanarQuantKeyCompressor(head_dim, bits, seed, device)
+        elif backend == 'iso':
             self.inner = IsoQuantKeyCompressor(head_dim, bits, seed, device)
         else:
             self.inner = RotorQuantKeyCompressor(head_dim, bits, seed, device)
@@ -105,7 +131,10 @@ class PatchedCache:
 
     def get_key_compressor(self, layer_idx: int, head_dim: int):
         if layer_idx not in self._key_compressors:
-            if self.backend == 'iso':
+            if self.backend == 'planar':
+                self._key_compressors[layer_idx] = PlanarQuantKeyCompressor(
+                    head_dim, self.bits, seed=layer_idx * 1000, device=self.device)
+            elif self.backend == 'iso':
                 self._key_compressors[layer_idx] = IsoQuantKeyCompressor(
                     head_dim, self.bits, seed=layer_idx * 1000, device=self.device)
             else:
@@ -250,7 +279,9 @@ def measure_attention_fidelity(model, tokenizer, context_len, bits, backend='iso
         B, H, S, D = keys.shape
 
         # Compress keys
-        if backend == 'iso':
+        if backend == 'planar':
+            compressor = PlanarQuantKeyCompressor(D, bits, seed=layer_idx * 1000, device="cuda")
+        elif backend == 'iso':
             compressor = IsoQuantKeyCompressor(D, bits, seed=layer_idx * 1000, device="cuda")
         else:
             compressor = RotorQuantKeyCompressor(D, bits, seed=layer_idx * 1000, device="cuda")
@@ -421,11 +452,12 @@ def main():
                         help="Only compress keys, leave values in fp16 (recommended)")
     parser.add_argument("--compress-values", dest="keys_only", action="store_false",
                         help="Also compress values (higher error)")
-    parser.add_argument("--backend", type=str, default="iso", choices=["iso", "clifford"],
-                        help="Rotation backend: iso (IsoQuant, default) or clifford (RotorQuant)")
+    parser.add_argument("--backend", type=str, default="iso", choices=["iso", "clifford", "planar"],
+                        help="Rotation backend: iso (IsoQuant), clifford (RotorQuant), or planar (PlanarQuant)")
     args = parser.parse_args()
 
-    backend_name = "IsoQuant" if args.backend == "iso" else "RotorQuant"
+    backend_names = {"iso": "IsoQuant", "clifford": "RotorQuant", "planar": "PlanarQuant"}
+    backend_name = backend_names[args.backend]
 
     print()
     print("=" * 74)
