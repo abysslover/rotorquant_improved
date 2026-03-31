@@ -270,5 +270,123 @@ def register_all_methods():
     )
 
 
+class TurboQuantProdFactory:
+    """
+    Factory for creating Prod quantizer instances with method + engine parameters.
+
+    Usage:
+        # Create Prod instance with method and engine
+        prod = TurboQuantProdFactory.create(
+            method="isoquant",
+            engine="pytorch",
+            d=128, bits=3, seed=42, device="cuda"
+        )
+
+    Mapping:
+        - method: planarquant, isoquant, rotorquant, turboquant
+        - engine: cpu, pytorch, triton
+        - cpu -> backend "python" with device="cpu"
+        - pytorch -> backend "python" with device="cuda"
+        - triton -> backend "triton" (future)
+    """
+
+    _ENGINE_TO_BACKEND = {
+        "cpu": "python",
+        "pytorch": "python",
+        "triton": "triton",
+    }
+
+    _ENGINE_TO_DEVICE = {
+        "cpu": "cpu",
+        "pytorch": "cuda",
+        "triton": "cuda",
+    }
+
+    @classmethod
+    def create(
+        cls,
+        method: str,
+        engine: str = "pytorch",
+        d: int = 128,
+        bits: int = 3,
+        qjl_dim: Optional[int] = None,
+        seed: int = 42,
+        device: Optional[str] = None,
+        **kwargs,
+    ) -> ProdQuantizerBase:
+        """
+        Create Prod quantizer instance.
+
+        Args:
+            method: Quantization method ("planarquant", "isoquant", "rotorquant", "turboquant")
+            engine: Computation engine ("cpu", "pytorch", "triton")
+            d: Vector dimension
+            bits: Total bits per component
+            qjl_dim: QJL projection dimension
+            seed: Random seed
+            device: Override device (if provided, ignores engine mapping)
+            **kwargs: Additional method-specific arguments
+
+        Returns:
+            ProdQuantizerBase instance
+        """
+        backend = cls._ENGINE_TO_BACKEND.get(engine, "python")
+
+        if device is None:
+            device = cls._ENGINE_TO_DEVICE.get(engine, "cpu")
+
+        return TurboQuantFactory.create_prod(
+            method=method,
+            backend=backend,
+            d=d,
+            bits=bits,
+            qjl_dim=qjl_dim,
+            seed=seed,
+            device=device,
+            **kwargs,
+        )
+
+    @classmethod
+    def create_quantizer(
+        cls,
+        method: str,
+        engine: str = "pytorch",
+        d: int = 128,
+        bits: int = 3,
+        seed: int = 42,
+        device: Optional[str] = None,
+        **kwargs,
+    ) -> QuantizerBase:
+        """
+        Create MSE quantizer instance (Stage 1 only).
+
+        Args:
+            method: Quantization method
+            engine: Computation engine
+            d: Vector dimension
+            bits: Bits per component
+            seed: Random seed
+            device: Override device
+            **kwargs: Additional arguments
+
+        Returns:
+            QuantizerBase instance
+        """
+        backend = cls._ENGINE_TO_BACKEND.get(engine, "python")
+
+        if device is None:
+            device = cls._ENGINE_TO_DEVICE.get(engine, "cpu")
+
+        return TurboQuantFactory.create_quantizer(
+            method=method,
+            backend=backend,
+            d=d,
+            bits=bits,
+            seed=seed,
+            device=device,
+            **kwargs,
+        )
+
+
 # Auto-register on import
 register_all_methods()
