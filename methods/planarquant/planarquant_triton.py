@@ -5,7 +5,7 @@ import math
 from typing import Optional, Tuple
 import torch.nn as nn
 
-from .lloyd_max import LloydMaxCodebook
+from ..common.lloyd_max import LloydMaxCodebook
 
 
 def make_random_rotations(n_groups: int, device="cpu", seed=None) -> torch.Tensor:

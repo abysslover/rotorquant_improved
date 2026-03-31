@@ -1,5 +1,5 @@
 from .isoquant import IsoQuantMSE, IsoQuantProd
-from .lloyd_max import LloydMaxCodebook, solve_lloyd_max
+from ..common.lloyd_max import LloydMaxCodebook, solve_lloyd_max
 from .triton_isoquant import triton_iso_full_fused, triton_iso_fast_fused
 
 __all__ = [

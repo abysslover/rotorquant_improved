@@ -13,7 +13,7 @@ from .clifford import (
     extract_vectors_from_multivectors,
     multivector_norm_sq,
 )
-from .lloyd_max import LloydMaxCodebook
+from ..common.lloyd_max import LloydMaxCodebook
 
 
 class RotorQuantMSE(nn.Module):
