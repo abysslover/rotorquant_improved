@@ -2,10 +2,14 @@ from .turboquant import TurboQuantMSE, TurboQuantProd, TurboQuantKVCache
 from .lloyd_max import LloydMaxCodebook, solve_lloyd_max
 from .compressors import TurboQuantCompressorV2, TurboQuantCompressorMSE
 from .cuda_backend import is_cuda_available, QJLSketch, QJLKeyQuantizer
-from .isoquant import IsoQuantMSE, IsoQuantProd
-from .planarquant import PlanarQuantMSE, PlanarQuantProd
-from .rotorquant import RotorQuantMSE, RotorQuantProd, RotorQuantKVCache
-from .clifford import geometric_product, make_random_rotor, rotor_sandwich
+from methods.isoquant import IsoQuantMSE, IsoQuantProd
+from methods.planarquant import PlanarQuantMSE, PlanarQuantProd
+from methods.rotorquant import RotorQuantMSE, RotorQuantProd, RotorQuantKVCache
+from methods.rotorquant.clifford import (
+    geometric_product,
+    make_random_rotor,
+    rotor_sandwich,
+)
 
 # IsoQuant is the recommended default (5.8x faster, same quality)
 QuantMSE = IsoQuantMSE
