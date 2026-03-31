@@ -13,3 +13,4 @@ benchmarks/results/*.tsv
 
 # History
 history/
+plan.md
