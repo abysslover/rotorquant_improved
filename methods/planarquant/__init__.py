@@ -1,6 +1,6 @@
 from .planarquant import PlanarQuantMSE, PlanarQuantProd
 from ..common.lloyd_max import LloydMaxCodebook, solve_lloyd_max
-from .triton_planarquant import (
+from .planarquant_triton import (
     triton_planar2_fused,
     triton_planar2_quantize,
     triton_planar2_dequantize,

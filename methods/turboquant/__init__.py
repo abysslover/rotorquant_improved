@@ -15,7 +15,7 @@ QuantMSE = IsoQuantMSE
 QuantProd = IsoQuantProd
 
 try:
-    from ..planarquant.triton_planarquant import (
+    from ..planarquant.planarquant_triton import (
         triton_planar2_fused,
         triton_planar2_quantize,
         triton_planar2_dequantize,
@@ -26,11 +26,11 @@ try:
         pre_rotate_query_planar,
         PlanarQuantCompressedCache,
     )
-    from ..isoquant.triton_isoquant import (
+    from ..isoquant.isoquant_triton import (
         triton_iso_full_fused,
         triton_iso_fast_fused,
     )
-    from ..rotorquant.triton_kernels import (
+    from ..rotorquant.rotorquant_triton import (
         triton_rotor_sandwich,
         triton_rotor_full_fused,
         triton_rotor_inverse_sandwich,

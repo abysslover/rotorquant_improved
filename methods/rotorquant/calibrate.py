@@ -17,7 +17,7 @@ import math
 from typing import Optional
 
 from .rotorquant import RotorQuantMSE
-from .triton_kernels import triton_rotor_sandwich, pack_rotors_for_triton
+from .rotorquant_triton import triton_rotor_sandwich, pack_rotors_for_triton
 from .clifford import E1, E2, E3, E123
 
 
@@ -84,13 +84,16 @@ def calibrate_rotorquant(
     input_ids = tokenizer(text, return_tensors="pt").input_ids[:, :n_tokens].to(device)
 
     config = model.config
-    text_config = getattr(config, 'text_config', config)
-    head_dim = getattr(text_config, 'head_dim',
-                       text_config.hidden_size // text_config.num_attention_heads)
+    text_config = getattr(config, "text_config", config)
+    head_dim = getattr(
+        text_config,
+        "head_dim",
+        text_config.hidden_size // text_config.num_attention_heads,
+    )
     n_layers = text_config.num_hidden_layers
 
     n_groups = (head_dim + 2) // 3
-    n_centroids = 2 ** bits
+    n_centroids = 2**bits
 
     # Create per-layer rotors (same as RotorQuantMSE would)
     per_layer_rotors = {}
@@ -99,7 +102,7 @@ def calibrate_rotorquant(
         per_layer_rotors[li] = pack_rotors_for_triton(rq.rotors).to(device)
 
     # Collect post-rotor statistics by hooking into cache update
-    stats = {li: {'v1': [], 'v2': [], 'v3': [], 't7': []} for li in range(n_layers)}
+    stats = {li: {"v1": [], "v2": [], "v3": [], "t7": []} for li in range(n_layers)}
 
     _orig = DynamicCache.update
 
@@ -116,10 +119,10 @@ def calibrate_rotorquant(
         mv_rot = triton_rotor_sandwich(flat_unit, pk)
 
         # Collect component statistics
-        stats[layer_idx]['v1'].append(mv_rot[:, :, E1].cpu().numpy().ravel())
-        stats[layer_idx]['v2'].append(mv_rot[:, :, E2].cpu().numpy().ravel())
-        stats[layer_idx]['v3'].append(mv_rot[:, :, E3].cpu().numpy().ravel())
-        stats[layer_idx]['t7'].append(mv_rot[:, :, E123].cpu().numpy().ravel())
+        stats[layer_idx]["v1"].append(mv_rot[:, :, E1].cpu().numpy().ravel())
+        stats[layer_idx]["v2"].append(mv_rot[:, :, E2].cpu().numpy().ravel())
+        stats[layer_idx]["v3"].append(mv_rot[:, :, E3].cpu().numpy().ravel())
+        stats[layer_idx]["t7"].append(mv_rot[:, :, E123].cpu().numpy().ravel())
 
         return _orig(self, key_states, value_states, layer_idx, cache_kwargs)
 
@@ -130,15 +133,18 @@ def calibrate_rotorquant(
     torch.cuda.empty_cache()
 
     # Fit per-layer centroids
-    print(f"  Fitting {n_layers} × 4 codebooks ({n_centroids} centroids each)...", flush=True)
+    print(
+        f"  Fitting {n_layers} × 4 codebooks ({n_centroids} centroids each)...",
+        flush=True,
+    )
     codebooks = {}
 
     for li in range(n_layers):
         # Concatenate all collected samples
-        v1 = np.concatenate(stats[li]['v1'])
-        v2 = np.concatenate(stats[li]['v2'])
-        v3 = np.concatenate(stats[li]['v3'])
-        t7 = np.concatenate(stats[li]['t7'])
+        v1 = np.concatenate(stats[li]["v1"])
+        v2 = np.concatenate(stats[li]["v2"])
+        v3 = np.concatenate(stats[li]["v3"])
+        t7 = np.concatenate(stats[li]["t7"])
 
         # Vector grades: fit shared codebook from all 3 components (same distribution)
         all_vector = np.concatenate([v1, v2, v3])
@@ -148,20 +154,26 @@ def calibrate_rotorquant(
         trivector_centroids = _fit_centroids_1d(t7, n_centroids)
 
         codebooks[li] = {
-            'vector': torch.tensor(vector_centroids, dtype=torch.float32, device=device),
-            'trivector': torch.tensor(trivector_centroids, dtype=torch.float32, device=device),
-            'rotors': per_layer_rotors[li],
+            "vector": torch.tensor(
+                vector_centroids, dtype=torch.float32, device=device
+            ),
+            "trivector": torch.tensor(
+                trivector_centroids, dtype=torch.float32, device=device
+            ),
+            "rotors": per_layer_rotors[li],
         }
 
     # Print summary
     print(f"  Calibration complete. Sample stats (layer 0 vs layer 35):")
     for li in [0, n_layers - 1]:
-        v = np.concatenate(stats[li]['v1'])
-        t = np.concatenate(stats[li]['t7'])
-        uncalib_range = codebooks[li]['vector'][[0, -1]].tolist()
-        print(f"    Layer {li:>2d}: vector std={v.std():.4f} range=[{v.min():.4f},{v.max():.4f}]"
-              f" → centroids [{uncalib_range[0]:.4f},{uncalib_range[1]:.4f}]"
-              f"  trivector std={t.std():.4f}")
+        v = np.concatenate(stats[li]["v1"])
+        t = np.concatenate(stats[li]["t7"])
+        uncalib_range = codebooks[li]["vector"][[0, -1]].tolist()
+        print(
+            f"    Layer {li:>2d}: vector std={v.std():.4f} range=[{v.min():.4f},{v.max():.4f}]"
+            f" → centroids [{uncalib_range[0]:.4f},{uncalib_range[1]:.4f}]"
+            f"  trivector std={t.std():.4f}"
+        )
 
     return codebooks
 
@@ -175,15 +187,17 @@ class CalibratedRotorQuantCompressor:
         self.device = device
 
     @torch.no_grad()
-    def compress_dequantize(self, key_states: torch.Tensor, layer_idx: int) -> torch.Tensor:
+    def compress_dequantize(
+        self, key_states: torch.Tensor, layer_idx: int
+    ) -> torch.Tensor:
         """Quantize → dequantize with per-layer calibrated codebook."""
         B, H, S, D = key_states.shape
         flat = key_states.reshape(-1, D).float()
 
         cb = self.codebooks[layer_idx]
-        pk = cb['rotors']
-        c_v = cb['vector']
-        c_t = cb['trivector']
+        pk = cb["rotors"]
+        c_v = cb["vector"]
+        c_t = cb["trivector"]
 
         # Normalize
         norms = flat.norm(dim=-1, keepdim=True).clamp(min=1e-8)
@@ -196,8 +210,10 @@ class CalibratedRotorQuantCompressor:
         b_v = (c_v[:-1] + c_v[1:]) / 2
         b_t = (c_t[:-1] + c_t[1:]) / 2
 
-        v1 = mv_rot[:, :, E1]; v2 = mv_rot[:, :, E2]
-        v3 = mv_rot[:, :, E3]; t7 = mv_rot[:, :, E123]
+        v1 = mv_rot[:, :, E1]
+        v2 = mv_rot[:, :, E2]
+        v3 = mv_rot[:, :, E3]
+        t7 = mv_rot[:, :, E123]
 
         # Nearest centroid
         q_v1 = c_v[torch.searchsorted(b_v, v1.contiguous())]
@@ -207,11 +223,14 @@ class CalibratedRotorQuantCompressor:
 
         # Reconstruct MV
         mv_q = torch.zeros_like(mv_rot)
-        mv_q[:, :, E1] = q_v1; mv_q[:, :, E2] = q_v2
-        mv_q[:, :, E3] = q_v3; mv_q[:, :, E123] = q_t7
+        mv_q[:, :, E1] = q_v1
+        mv_q[:, :, E2] = q_v2
+        mv_q[:, :, E3] = q_v3
+        mv_q[:, :, E123] = q_t7
 
         # Inverse sandwich
-        from .triton_kernels import triton_rotor_inverse_sandwich
+        from .rotorquant_triton import triton_rotor_inverse_sandwich
+
         k_mse = triton_rotor_inverse_sandwich(mv_q, pk, D)
 
         # Rescale

@@ -7,7 +7,7 @@ from .clifford import (
     extract_vectors_from_multivectors,
 )
 from ..common.lloyd_max import LloydMaxCodebook, solve_lloyd_max
-from .triton_kernels import (
+from .rotorquant_triton import (
     triton_rotor_sandwich,
     triton_rotor_full_fused,
     triton_rotor_inverse_sandwich,

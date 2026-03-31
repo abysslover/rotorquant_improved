@@ -19,7 +19,7 @@ from typing import Optional
 from transformers import DynamicCache
 
 from .rotorquant import RotorQuantMSE
-from .triton_kernels import (
+from .rotorquant_triton import (
     triton_rotor_sandwich,
     triton_rotor_full_fused,
     triton_rotor_inverse_sandwich,
@@ -46,32 +46,47 @@ import triton.language as tl
 @triton.jit
 def _fused_rotor_attention_qjl_kernel(
     # MSE inputs
-    Q_rot_ptr, K_idx_ptr, K_norms_ptr, C_ptr,
+    Q_rot_ptr,
+    K_idx_ptr,
+    K_norms_ptr,
+    C_ptr,
     # QJL inputs
-    Q_sketch_ptr, QJL_signs_ptr, Res_norms_ptr,
+    Q_sketch_ptr,
+    QJL_signs_ptr,
+    Res_norms_ptr,
     # Output
     Out_ptr,
     # Dimensions
     kv_len,
-    mse_dim: tl.constexpr,   # n_groups * 4 (rotated query dim)
-    qjl_m: tl.constexpr,     # QJL projection dim
-    n_q_heads, n_kv_heads,
+    mse_dim: tl.constexpr,  # n_groups * 4 (rotated query dim)
+    qjl_m: tl.constexpr,  # QJL projection dim
+    n_q_heads,
+    n_kv_heads,
     scale,
-    qjl_scale,               # sqrt(pi/2) / m
+    qjl_scale,  # sqrt(pi/2) / m
     # Strides — Q_rot: [BH_q, mse_dim]
-    stride_qr_bh, stride_qr_d,
+    stride_qr_bh,
+    stride_qr_d,
     # Strides — K_idx: [BH_kv, kv_len, mse_dim]
-    stride_ki_bh, stride_ki_s, stride_ki_d,
+    stride_ki_bh,
+    stride_ki_s,
+    stride_ki_d,
     # Strides — K_norms: [BH_kv, kv_len]
-    stride_kn_bh, stride_kn_s,
+    stride_kn_bh,
+    stride_kn_s,
     # Strides — Q_sketch: [BH_q, qjl_m]
-    stride_qs_bh, stride_qs_d,
+    stride_qs_bh,
+    stride_qs_d,
     # Strides — QJL_signs: [BH_kv, kv_len, qjl_m]
-    stride_js_bh, stride_js_s, stride_js_d,
+    stride_js_bh,
+    stride_js_s,
+    stride_js_d,
     # Strides — Res_norms: [BH_kv, kv_len]
-    stride_rn_bh, stride_rn_s,
+    stride_rn_bh,
+    stride_rn_s,
     # Strides — Out: [BH_q, kv_len]
-    stride_o_bh, stride_o_s,
+    stride_o_bh,
+    stride_o_s,
     # Block sizes
     BLOCK_S: tl.constexpr,
     BLOCK_D: tl.constexpr,
@@ -99,9 +114,12 @@ def _fused_rotor_attention_qjl_kernel(
         q_ptrs = Q_rot_ptr + pid_bh * stride_qr_bh + d_offs * stride_qr_d
         q_vals = tl.load(q_ptrs, mask=d_mask, other=0.0).to(tl.float32)
 
-        ki_ptrs = (K_idx_ptr + kv_bh * stride_ki_bh
-                   + s_offs[:, None] * stride_ki_s
-                   + d_offs[None, :] * stride_ki_d)
+        ki_ptrs = (
+            K_idx_ptr
+            + kv_bh * stride_ki_bh
+            + s_offs[:, None] * stride_ki_s
+            + d_offs[None, :] * stride_ki_d
+        )
         mask_2d = s_mask[:, None] & d_mask[None, :]
         k_idx = tl.load(ki_ptrs, mask=mask_2d, other=0).to(tl.int32)
         k_vals = tl.load(C_ptr + k_idx, mask=mask_2d, other=0.0).to(tl.float32)
@@ -117,9 +135,12 @@ def _fused_rotor_attention_qjl_kernel(
         qs_ptrs = Q_sketch_ptr + pid_bh * stride_qs_bh + d_offs * stride_qs_d
         qs_vals = tl.load(qs_ptrs, mask=d_mask_q, other=0.0).to(tl.float32)
 
-        sign_ptrs = (QJL_signs_ptr + kv_bh * stride_js_bh
-                     + s_offs[:, None] * stride_js_s
-                     + d_offs[None, :] * stride_js_d)
+        sign_ptrs = (
+            QJL_signs_ptr
+            + kv_bh * stride_js_bh
+            + s_offs[:, None] * stride_js_s
+            + d_offs[None, :] * stride_js_d
+        )
         mask_2d_q = s_mask[:, None] & d_mask_q[None, :]
         signs = tl.load(sign_ptrs, mask=mask_2d_q, other=0).to(tl.float32)
 
@@ -141,13 +162,13 @@ def _fused_rotor_attention_qjl_kernel(
 
 
 def triton_fused_attention_qjl(
-    q_rotated: torch.Tensor,      # [batch, n_q_heads, q_len, mse_dim]
-    q_sketch: torch.Tensor,       # [batch, n_q_heads, q_len, qjl_m]
-    key_indices: torch.Tensor,    # [batch, n_kv_heads, kv_len, mse_dim] uint8
-    key_norms: torch.Tensor,      # [batch, n_kv_heads, kv_len] fp16
-    qjl_signs: torch.Tensor,     # [batch, n_kv_heads, kv_len, qjl_m] int8 {+1,-1}
-    residual_norms: torch.Tensor, # [batch, n_kv_heads, kv_len] fp16
-    centroids: torch.Tensor,     # [n_levels] float32
+    q_rotated: torch.Tensor,  # [batch, n_q_heads, q_len, mse_dim]
+    q_sketch: torch.Tensor,  # [batch, n_q_heads, q_len, qjl_m]
+    key_indices: torch.Tensor,  # [batch, n_kv_heads, kv_len, mse_dim] uint8
+    key_norms: torch.Tensor,  # [batch, n_kv_heads, kv_len] fp16
+    qjl_signs: torch.Tensor,  # [batch, n_kv_heads, kv_len, qjl_m] int8 {+1,-1}
+    residual_norms: torch.Tensor,  # [batch, n_kv_heads, kv_len] fp16
+    centroids: torch.Tensor,  # [n_levels] float32
     scale: float,
 ) -> torch.Tensor:
     """Fused MSE + QJL attention scores via Triton."""
@@ -158,39 +179,63 @@ def triton_fused_attention_qjl(
     qs_flat = q_sketch.reshape(batch * n_q_heads * q_len, qjl_m).contiguous().float()
     ki_flat = key_indices.reshape(batch * n_kv_heads, kv_len, mse_dim).contiguous()
     kn_flat = key_norms.reshape(batch * n_kv_heads, kv_len).contiguous().float()
-    sign_flat = qjl_signs.reshape(batch * n_kv_heads, kv_len, qjl_m).contiguous().float()
+    sign_flat = (
+        qjl_signs.reshape(batch * n_kv_heads, kv_len, qjl_m).contiguous().float()
+    )
     rn_flat = residual_norms.reshape(batch * n_kv_heads, kv_len).contiguous().float()
     centroids = centroids.contiguous().float()
 
-    out = torch.empty(batch * n_q_heads * q_len, kv_len,
-                      device=q_rotated.device, dtype=torch.float32)
+    out = torch.empty(
+        batch * n_q_heads * q_len, kv_len, device=q_rotated.device, dtype=torch.float32
+    )
 
     effective_q_heads = n_q_heads * q_len
     qjl_scale = math.sqrt(math.pi / 2) / qjl_m
 
-    grid = lambda meta: (batch * effective_q_heads,
-                         triton.cdiv(kv_len, meta['BLOCK_S']))
+    grid = lambda meta: (
+        batch * effective_q_heads,
+        triton.cdiv(kv_len, meta["BLOCK_S"]),
+    )
 
     _fused_rotor_attention_qjl_kernel[grid](
-        q_flat, ki_flat, kn_flat, centroids,
-        qs_flat, sign_flat, rn_flat,
+        q_flat,
+        ki_flat,
+        kn_flat,
+        centroids,
+        qs_flat,
+        sign_flat,
+        rn_flat,
         out,
-        kv_len, mse_dim, qjl_m,
-        effective_q_heads, n_kv_heads,
-        scale, qjl_scale,
-        q_flat.stride(0), q_flat.stride(1),
-        ki_flat.stride(0), ki_flat.stride(1), ki_flat.stride(2),
-        kn_flat.stride(0), kn_flat.stride(1),
-        qs_flat.stride(0), qs_flat.stride(1),
-        sign_flat.stride(0), sign_flat.stride(1), sign_flat.stride(2),
-        rn_flat.stride(0), rn_flat.stride(1),
-        out.stride(0), out.stride(1),
+        kv_len,
+        mse_dim,
+        qjl_m,
+        effective_q_heads,
+        n_kv_heads,
+        scale,
+        qjl_scale,
+        q_flat.stride(0),
+        q_flat.stride(1),
+        ki_flat.stride(0),
+        ki_flat.stride(1),
+        ki_flat.stride(2),
+        kn_flat.stride(0),
+        kn_flat.stride(1),
+        qs_flat.stride(0),
+        qs_flat.stride(1),
+        sign_flat.stride(0),
+        sign_flat.stride(1),
+        sign_flat.stride(2),
+        rn_flat.stride(0),
+        rn_flat.stride(1),
+        out.stride(0),
+        out.stride(1),
     )
 
     return out.reshape(batch, n_q_heads, q_len, kv_len)
 
 
 # ── Compressed cache with QJL ───────────────────────────────────────
+
 
 class RotorQuantCompressedCache(DynamicCache):
     """KV cache storing rotor MSE indices + QJL signs + norms.
@@ -207,7 +252,7 @@ class RotorQuantCompressedCache(DynamicCache):
         self.rq = rq
         self.device = device
         self.packed_rotors = pack_rotors_for_triton(rq.rotors).to(device)
-        self.centroids_vector = getattr(rq, 'centroids_vector').to(device)
+        self.centroids_vector = getattr(rq, "centroids_vector").to(device)
         self.n_groups = rq.n_groups
         self.head_dim = rq.d
 
@@ -221,7 +266,7 @@ class RotorQuantCompressedCache(DynamicCache):
         while len(self._S_matrices) <= layer_idx:
             self._S_matrices.append(None)
         if self._S_matrices[layer_idx] is None:
-            gen = torch.Generator(device='cpu')
+            gen = torch.Generator(device="cpu")
             gen.manual_seed(layer_idx * 7919 + 42)
             S = torch.randn(self.head_dim, self.head_dim, generator=gen)
             self._S_matrices[layer_idx] = S.to(self.device)
@@ -237,7 +282,9 @@ class RotorQuantCompressedCache(DynamicCache):
         flat_unit = flat / norms
 
         # Rotor sandwich
-        mv_rot = triton_rotor_sandwich(flat_unit, self.packed_rotors)  # [N, n_groups, 8]
+        mv_rot = triton_rotor_sandwich(
+            flat_unit, self.packed_rotors
+        )  # [N, n_groups, 8]
 
         # Extract non-zero grades + quantize
         c_v = self.centroids_vector
@@ -254,18 +301,25 @@ class RotorQuantCompressedCache(DynamicCache):
         idx_t7 = torch.searchsorted(b_v, t7.contiguous())
 
         # Reconstruct MSE keys for residual computation
-        q_v1 = c_v[idx_v1]; q_v2 = c_v[idx_v2]; q_v3 = c_v[idx_v3]; q_t7 = c_v[idx_t7]
+        q_v1 = c_v[idx_v1]
+        q_v2 = c_v[idx_v2]
+        q_v3 = c_v[idx_v3]
+        q_t7 = c_v[idx_t7]
 
         # Build quantized MV and inverse sandwich to get k_mse
         mv_q = torch.zeros_like(mv_rot)
-        mv_q[:, :, E1] = q_v1; mv_q[:, :, E2] = q_v2
-        mv_q[:, :, E3] = q_v3; mv_q[:, :, E123] = q_t7
+        mv_q[:, :, E1] = q_v1
+        mv_q[:, :, E2] = q_v2
+        mv_q[:, :, E3] = q_v3
+        mv_q[:, :, E123] = q_t7
 
         k_mse_unit = triton_rotor_inverse_sandwich(mv_q, self.packed_rotors, D)
         k_mse = k_mse_unit * norms  # [N, D]
 
         # Pack indices
-        indices = torch.stack([idx_v1, idx_v2, idx_v3, idx_t7], dim=-1)  # [N, n_groups, 4]
+        indices = torch.stack(
+            [idx_v1, idx_v2, idx_v3, idx_t7], dim=-1
+        )  # [N, n_groups, 4]
         indices = indices.reshape(-1, self.n_groups * 4).to(torch.uint8)
 
         # ── Stage 2: QJL on residual ──
@@ -278,10 +332,10 @@ class RotorQuantCompressedCache(DynamicCache):
         qjl_signs[qjl_signs == 0] = 1
 
         return {
-            'mse_indices': indices.reshape(B, H, S_len, self.n_groups * 4),
-            'mse_norms': norms.squeeze(-1).half().reshape(B, H, S_len),
-            'qjl_signs': qjl_signs.reshape(B, H, S_len, D),
-            'residual_norms': residual_norms.half().reshape(B, H, S_len),
+            "mse_indices": indices.reshape(B, H, S_len, self.n_groups * 4),
+            "mse_norms": norms.squeeze(-1).half().reshape(B, H, S_len),
+            "qjl_signs": qjl_signs.reshape(B, H, S_len, D),
+            "residual_norms": residual_norms.half().reshape(B, H, S_len),
         }
 
     def store_compressed_key(self, key_states: torch.Tensor, layer_idx: int):
@@ -304,13 +358,16 @@ class RotorQuantCompressedCache(DynamicCache):
 
 # ── Helper functions ────────────────────────────────────────────────
 
+
 def pre_rotate_query(query, packed_rotors, n_groups):
     """Pre-rotate Q into rotor-compressed basis, extract non-zero grades."""
     B, H, Q, D = query.shape
     flat = query.reshape(-1, D)
     mv_rot = triton_rotor_sandwich(flat, packed_rotors)
-    v1 = mv_rot[:, :, E1]; v2 = mv_rot[:, :, E2]
-    v3 = mv_rot[:, :, E3]; t7 = mv_rot[:, :, E123]
+    v1 = mv_rot[:, :, E1]
+    v2 = mv_rot[:, :, E2]
+    v3 = mv_rot[:, :, E3]
+    t7 = mv_rot[:, :, E123]
     q_rot = torch.stack([v1, v2, v3, t7], dim=-1).reshape(-1, n_groups * 4)
     return q_rot.reshape(B, H, Q, n_groups * 4)
 
@@ -324,10 +381,12 @@ def pre_sketch_query(query, S):
 def _apply_rotary_pos_emb(q, k, cos, sin, unsqueeze_dim=1):
     cos = cos.unsqueeze(unsqueeze_dim)
     sin = sin.unsqueeze(unsqueeze_dim)
+
     def rotate_half(x):
-        x1 = x[..., :x.shape[-1] // 2]
-        x2 = x[..., x.shape[-1] // 2:]
+        x1 = x[..., : x.shape[-1] // 2]
+        x2 = x[..., x.shape[-1] // 2 :]
         return torch.cat((-x2, x1), dim=-1)
+
     return (q * cos) + (rotate_half(q) * sin), (k * cos) + (rotate_half(k) * sin)
 
 
@@ -335,10 +394,15 @@ def _repeat_kv(hidden_states, n_rep):
     if n_rep == 1:
         return hidden_states
     b, h, s, d = hidden_states.shape
-    return hidden_states[:, :, None, :, :].expand(b, h, n_rep, s, d).reshape(b, h * n_rep, s, d)
+    return (
+        hidden_states[:, :, None, :, :]
+        .expand(b, h, n_rep, s, d)
+        .reshape(b, h * n_rep, s, d)
+    )
 
 
 # ── Patched attention forward ───────────────────────────────────────
+
 
 def make_fused_rotor_attention_forward(attn_module, cache, layer_index):
     """Create replacement forward with MSE + QJL two-term estimator."""
@@ -348,12 +412,18 @@ def make_fused_rotor_attention_forward(attn_module, cache, layer_index):
     head_dim = cache.head_dim
     scale = 1.0 / math.sqrt(head_dim)
     n_heads = attn_module.num_heads
-    n_kv_heads = getattr(attn_module, 'num_key_value_heads', n_heads)
+    n_kv_heads = getattr(attn_module, "num_key_value_heads", n_heads)
     n_kv_groups = n_heads // n_kv_heads
     layer_idx = layer_index
 
-    def fused_forward(hidden_states, position_embeddings=None, attention_mask=None,
-                      past_key_values=None, cache_position=None, **kwargs):
+    def fused_forward(
+        hidden_states,
+        position_embeddings=None,
+        attention_mask=None,
+        past_key_values=None,
+        cache_position=None,
+        **kwargs,
+    ):
         bsz, q_len, _ = hidden_states.size()
 
         Q = attn_module.q_proj(hidden_states)
@@ -383,14 +453,18 @@ def make_fused_rotor_attention_forward(attn_module, cache, layer_index):
 
         # Get compressed keys
         compressed = cache.get_compressed_key(layer_idx)
-        kv_len = compressed['mse_indices'].shape[2]
+        kv_len = compressed["mse_indices"].shape[2]
 
         # Fused two-term attention
         attn_weights = triton_fused_attention_qjl(
-            q_rotated, q_sketch,
-            compressed['mse_indices'], compressed['mse_norms'],
-            compressed['qjl_signs'], compressed['residual_norms'],
-            centroids, scale,
+            q_rotated,
+            q_sketch,
+            compressed["mse_indices"],
+            compressed["mse_norms"],
+            compressed["qjl_signs"],
+            compressed["residual_norms"],
+            centroids,
+            scale,
         )
 
         # Mask + softmax
@@ -407,9 +481,9 @@ def make_fused_rotor_attention_forward(attn_module, cache, layer_index):
         attn_output = torch.matmul(attn_weights, _repeat_kv(full_values, n_kv_groups))
 
         attn_output = attn_output.transpose(1, 2).contiguous().reshape(bsz, q_len, -1)
-        if hasattr(attn_module, 'o_proj'):
+        if hasattr(attn_module, "o_proj"):
             attn_output = attn_module.o_proj(attn_output)
-        elif hasattr(attn_module, 'out_proj'):
+        elif hasattr(attn_module, "out_proj"):
             attn_output = attn_module.out_proj(attn_output)
 
         return attn_output, None
@@ -420,9 +494,12 @@ def make_fused_rotor_attention_forward(attn_module, cache, layer_index):
 def install_fused_rotor_attention(model, bits: int = 3) -> RotorQuantCompressedCache:
     """Patch all attention layers with fused RotorQuant + QJL."""
     config = model.config
-    text_config = getattr(config, 'text_config', config)
-    head_dim = getattr(text_config, 'head_dim',
-                       text_config.hidden_size // text_config.num_attention_heads)
+    text_config = getattr(config, "text_config", config)
+    head_dim = getattr(
+        text_config,
+        "head_dim",
+        text_config.hidden_size // text_config.num_attention_heads,
+    )
 
     rq = RotorQuantMSE(head_dim, bits, device="cuda")
     cache = RotorQuantCompressedCache(rq, device="cuda")
@@ -430,15 +507,18 @@ def install_fused_rotor_attention(model, bits: int = 3) -> RotorQuantCompressedC
     patched = 0
     layer_idx = 0
     for name, module in model.named_modules():
-        has_projs = all(hasattr(module, a) for a in ['q_proj', 'k_proj', 'v_proj'])
-        has_out = hasattr(module, 'o_proj') or hasattr(module, 'out_proj')
+        has_projs = all(hasattr(module, a) for a in ["q_proj", "k_proj", "v_proj"])
+        has_out = hasattr(module, "o_proj") or hasattr(module, "out_proj")
         if has_projs and has_out:
-            if not hasattr(module, 'num_heads'):
+            if not hasattr(module, "num_heads"):
                 module.num_heads = text_config.num_attention_heads
-            if not hasattr(module, 'num_key_value_heads'):
+            if not hasattr(module, "num_key_value_heads"):
                 module.num_key_value_heads = getattr(
-                    text_config, 'num_key_value_heads', text_config.num_attention_heads)
-            module.forward = make_fused_rotor_attention_forward(module, cache, layer_idx)
+                    text_config, "num_key_value_heads", text_config.num_attention_heads
+                )
+            module.forward = make_fused_rotor_attention_forward(
+                module, cache, layer_idx
+            )
             patched += 1
             layer_idx += 1
 
