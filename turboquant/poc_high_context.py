@@ -170,7 +170,8 @@ def patch_model_kv_cache(model, bits: int = 4, quantize_values: bool = False,
 
     _original_update = DynamicCache.update
 
-    def _compress_keys(key_states, layer_idx):
+    def _compress_keys_inplace(key_states, layer_idx):
+        """Quantize keys, returning new tensor (same shape/device)."""
         D = key_states.shape[-1]
         kc = rq_cache.get_key_compressor(layer_idx, D)
         return kc.compress_dequantize(key_states)
@@ -184,8 +185,15 @@ def patch_model_kv_cache(model, bits: int = 4, quantize_values: bool = False,
             prefill_done[layer_idx] = True
             return _original_update(self, key_states, value_states, layer_idx, cache_kwargs)
 
-        # Decode: quantize new key for storage, full-precision for current attention
-        key_quantized = _compress_keys(key_states, layer_idx)
+        # Decode: quantize new key for storage, full-precision for current attention.
+        #
+        # Old approach: k_out.clone() — copied entire cache, O(seq_len) per token.
+        # New approach: store quantized, then patch last position in-place, O(1).
+        #
+        # The previous step's key stays full-precision in the cache (never
+        # re-quantized). This is intentional — one unquantized key per decode
+        # step only helps quality, and the overhead is zero.
+        key_quantized = _compress_keys_inplace(key_states, layer_idx)
 
         # Optionally quantize values
         if rq_cache.quantize_values:
@@ -195,14 +203,20 @@ def patch_model_kv_cache(model, bits: int = 4, quantize_values: bool = False,
 
         k_out, v_out = _original_update(self, key_quantized, value_states, layer_idx, cache_kwargs)
 
-        # Return full-precision key for current token's attention
-        k_out = k_out.clone()
-        k_out[:, :, -1:, :] = key_states
-
-        # On first decode step: quantize all prefill keys in bulk
+        # On first decode step: quantize all prefill keys in bulk (one-time cost)
         if prefill_done.get(layer_idx) is True:
-            k_out[:, :, :-1, :] = _compress_keys(k_out[:, :, :-1, :], layer_idx)
+            cached_keys = self.layers[layer_idx].keys
+            B, H, S, D = cached_keys.shape
+            if S > 1:
+                prefill_keys = cached_keys[:, :, :-1, :]
+                prefill_q = _compress_keys_inplace(prefill_keys, layer_idx)
+                cached_keys[:, :, :-1, :] = prefill_q
             prefill_done[layer_idx] = 'done'
+
+        # Patch last position to full-precision for current-step attention.
+        # k_out IS the cache tensor — this writes directly into the cache.
+        # Next step, a new key appends and this position stays full-precision.
+        k_out[:, :, -1:, :] = key_states
 
         return k_out, v_out
 
