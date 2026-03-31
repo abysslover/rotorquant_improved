@@ -2,7 +2,7 @@
 
 A from-scratch PyTorch implementation of [TurboQuant](https://arxiv.org/abs/2504.19874) (ICLR 2026), Google's two-stage vector quantization algorithm for compressing LLM key-value caches — plus **RotorQuant** (Clifford rotors), **[IsoQuant](https://github.com/ParaMind2025/isoquant)** (quaternion 4D blocks, [local impl](turboquant/isoquant.py)), and **PlanarQuant** (2D Givens rotations, [local impl](turboquant/planarquant.py)), progressively faster drop-in replacements for the dense rotation step.
 
-**[PlanarQuant](https://github.com/ParaMind2025/isoquant)** (by ParaMind2025) is the fastest variant: **10–27x faster** than RotorQuant at identical reconstruction quality, using SO(2) Givens rotations on 2D pairs. **[IsoQuant](https://github.com/ParaMind2025/isoquant)** (also ParaMind2025) remains the recommended default for balanced quality/speed with clean 4D hardware alignment.
+**[PlanarQuant](https://github.com/ParaMind2025/isoquant)** (by ParaMind2025) is the fastest PyTorch-level variant: **10–27x faster** than RotorQuant and **2–5x faster** than IsoQuant-Fast in pure PyTorch, at identical reconstruction quality. With Triton kernels, both PlanarQuant and IsoQuant converge to **~30µs** (memory-bound floor). **[IsoQuant](https://github.com/ParaMind2025/isoquant)** (also ParaMind2025) remains the recommended default for its clean 4D hardware alignment.
 
 ## Head-to-Head vs Reference TurboQuant
 
@@ -153,7 +153,8 @@ For a 7B model (28 layers, 32 KV heads) RefTQ needs **57 MB** just for rotation 
 | Forward FMAs | 16,384 | 2,408 | 512 | 1,024 | **256** |
 | Parameters | 16,384 | 344 | 128 | 256 | **128** |
 | Alignment | N/A | 42 blocks + 2D tail | 32 clean blocks | 32 clean blocks | **64 clean pairs** |
-| Stage-1 latency | — | 2,649 µs | 466 µs (5.7x) | 710 µs (3.7x) | **164 µs (16.2x)** |
+| PyTorch latency | — | 2,649 µs | 466 µs (5.7x) | 710 µs (3.7x) | **164 µs (16.2x)** |
+| Triton latency | — | 34 µs | **30 µs** | 32 µs | **30 µs** |
 | Reconstruction MSE | Baseline | 0.000265 | 0.000266 | 0.000265 | **0.000266** |
 
 ### Reconstruction MSE (8192 normalized vectors)
@@ -172,7 +173,7 @@ For a 7B model (28 layers, 32 KV heads) RefTQ needs **57 MB** just for rotation 
 
 MSE is indistinguishable across all methods. PlanarQuant and IsoQuant are pure speed upgrades.
 
-### Stage-1 Latency (µs, 8192 vectors, RTX 5090)
+### Stage-1 Latency — PyTorch path (µs, 8192 vectors, RTX 5090)
 
 | d | bits | RotorQuant | IsoQuant-Full | IsoQuant-Fast | PlanarQuant | Planar speedup |
 |---|------|-----------|---------------|---------------|-------------|----------------|
@@ -186,7 +187,23 @@ MSE is indistinguishable across all methods. PlanarQuant and IsoQuant are pure s
 | 256 | 3 | 3,834 | 750 | 477 | **284** | **13.5x** |
 | 256 | 4 | 3,817 | 1,243 | 988 | **804** | **4.7x** |
 
-PlanarQuant is consistently 4.7–26.6x faster than RotorQuant. Best gains at low dimensions and low bit widths.
+PlanarQuant PyTorch is 4.7–26.6x faster than RotorQuant. Best gains at low dimensions and low bit widths.
+
+### Stage-1 Latency — Triton kernels (µs, 8192 vectors, RTX 5090)
+
+| d | bits | PQ-PyTorch | PQ-Triton | PQ speedup | IQ-PyTorch | IQ-Triton | IQ speedup |
+|---|------|-----------|-----------|------------|-----------|-----------|------------|
+| 64 | 2 | 120 | **31** | 3.9x | 303 | **30** | 10.0x |
+| 64 | 3 | 124 | **30** | 4.1x | 321 | **30** | 10.6x |
+| 64 | 4 | 136 | **31** | 4.3x | 396 | **33** | 12.2x |
+| 128 | 2 | 125 | **30** | 4.1x | 315 | **32** | 9.9x |
+| 128 | 3 | 166 | **30** | 5.5x | 367 | **31** | 11.9x |
+| 128 | 4 | 255 | **30** | 8.4x | 461 | **31** | 14.8x |
+| 256 | 2 | 192 | **31** | 6.1x | 380 | **31** | 12.4x |
+| 256 | 3 | 279 | **31** | 8.9x | 469 | **32** | 14.9x |
+| 256 | 4 | 578 | **31** | 18.7x | 763 | **30** | 25.4x |
+
+With Triton, both PlanarQuant and IsoQuant converge to **~30µs** — the memory-bound floor. The FMA difference (4 vs 16) is invisible at this scale. Without Triton, PlanarQuant's simpler PyTorch path gives 2–5x over IsoQuant.
 
 ### Perplexity (wikitext-2, autoregressive with post-prefill quantization)
 
@@ -242,6 +259,8 @@ The simplest rotation primitive: **2D Givens rotations** (SO(2)). Each pair of a
 | Parameters | 16,384 | 344 | 128 | **128 (128x fewer)** |
 | Alignment | N/A | Tail handling | Clean power-of-2 | **Clean pairs** |
 | Quality | Baseline | 1.0x | 1.0x | **1.0x** |
+| Triton latency | — | 34 µs | 30 µs | **30 µs** (tied) |
+| PyTorch latency | — | 2,649 µs | 466 µs | **164 µs** |
 
 ### Key Innovations
 
@@ -282,9 +301,12 @@ Portable, auto-tuned GPU kernels — no CUDA C++ compilation needed:
 
 | Kernel | Purpose | Latency (d=128, 3-bit) |
 |--------|---------|----------------------|
-| **`triton_iso_fast_fused`** | **IsoQuant-Fast full pipeline** | **30 µs** |
+| **`triton_planar2_fused`** | **PlanarQuant 2D full pipeline** | **~30 µs** |
+| **`triton_iso_fast_fused`** | **IsoQuant-Fast full pipeline** | **~30 µs** |
 | **`triton_iso_full_fused`** | **IsoQuant-Full full pipeline** | ~32 µs |
 | `triton_rotor_full_fused` | Clifford quantize-dequantize pipeline | 34 µs |
+| `triton_planar2_quantize` | PlanarQuant quantize-only (returns indices) | — |
+| `triton_planar2_dequantize` | PlanarQuant dequantize-only (from indices) | — |
 | `triton_rotor_sandwich` | Clifford R x R̃ (embed + rotor sandwich) | — |
 | `triton_fused_attention_qjl` | Q@K^T with QJL correction (experimental) | — |
 
