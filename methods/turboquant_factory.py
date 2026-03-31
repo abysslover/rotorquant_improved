@@ -45,7 +45,9 @@ def ensure_cuda_kernels_built() -> bool:
         pass
 
     csrc_dir = Path(__file__).resolve().parent / "turboquant" / "csrc"
-    setup_py = csrc_dir / "setup.py"
+    setup_py = (
+        Path(__file__).resolve().parent.parent / "turboquant" / "csrc" / "setup.py"
+    )
 
     # Check if setup.py exists
     if not setup_py.exists():

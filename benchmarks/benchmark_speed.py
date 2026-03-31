@@ -34,9 +34,9 @@ def run_benchmark():
 
     for n in [1000, 5000, 10000]:
         for method_name in ["planarquant", "isoquant", "rotorquant", "turboquant"]:
-            for engine in ["cpu", "torch_cuda"]:
+            for engine in ["cpu", "torch_cuda", "cuda_kernel"]:
                 try:
-                    dev = device if engine == "torch_cuda" else "cpu"
+                    dev = device if engine in ["torch_cuda", "cuda_kernel"] else "cpu"
 
                     if method_name == "turboquant" and engine == "cpu":
                         continue
