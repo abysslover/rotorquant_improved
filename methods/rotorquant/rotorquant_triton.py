@@ -30,10 +30,21 @@ from typing import Optional
 # (scalar + bivector grades). We exploit this sparsity for ~28 FMAs vs 64.
 # ============================================================================
 
+
 @triton.jit
 def _gp_rotor_mv(
-    s, p12, p13, p23,
-    x0, x1, x2, x3, x4, x5, x6, x7,
+    s,
+    p12,
+    p13,
+    p23,
+    x0,
+    x1,
+    x2,
+    x3,
+    x4,
+    x5,
+    x6,
+    x7,
 ):
     """Sparse geometric product: rotor * multivector (rotor on LEFT).
 
@@ -52,8 +63,18 @@ def _gp_rotor_mv(
 
 @triton.jit
 def _gp_mv_rotor(
-    x0, x1, x2, x3, x4, x5, x6, x7,
-    s, p12, p13, p23,
+    x0,
+    x1,
+    x2,
+    x3,
+    x4,
+    x5,
+    x6,
+    x7,
+    s,
+    p12,
+    p13,
+    p23,
 ):
     """Sparse geometric product: multivector * rotor (rotor on RIGHT).
 
@@ -93,12 +114,20 @@ def _quantize_nearest(val, centroids_ptr, n_levels: tl.constexpr):
 #   embed(x) → R x R̃  =  (R * x) * R̃
 # ============================================================================
 
+
 @triton.jit
 def _rotor_sandwich_kernel(
-    input_ptr, rotors_ptr, output_ptr,
-    batch_size, emb_dim, n_groups: tl.constexpr,
-    stride_in_b, stride_in_d,
-    stride_out_b, stride_out_g, stride_out_c,
+    input_ptr,
+    rotors_ptr,
+    output_ptr,
+    batch_size,
+    emb_dim,
+    n_groups: tl.constexpr,
+    stride_in_b,
+    stride_in_d,
+    stride_out_b,
+    stride_out_g,
+    stride_out_c,
     BLOCK_G: tl.constexpr,
 ):
     pid_b = tl.program_id(0)
@@ -108,32 +137,61 @@ def _rotor_sandwich_kernel(
     g_mask = g_offs < n_groups
 
     # Load rotor: R = [s, p12, p13, p23]
-    r_s   = tl.load(rotors_ptr + g_offs * 4 + 0, mask=g_mask, other=1.0)
+    r_s = tl.load(rotors_ptr + g_offs * 4 + 0, mask=g_mask, other=1.0)
     r_p12 = tl.load(rotors_ptr + g_offs * 4 + 1, mask=g_mask, other=0.0)
     r_p13 = tl.load(rotors_ptr + g_offs * 4 + 2, mask=g_mask, other=0.0)
     r_p23 = tl.load(rotors_ptr + g_offs * 4 + 3, mask=g_mask, other=0.0)
 
     # Embed: load 3 vector components per group
     d0 = g_offs * 3
-    v1 = tl.load(input_ptr + pid_b * stride_in_b + d0 * stride_in_d,
-                  mask=g_mask & (d0 < emb_dim), other=0.0)
-    v2 = tl.load(input_ptr + pid_b * stride_in_b + (d0 + 1) * stride_in_d,
-                  mask=g_mask & ((d0 + 1) < emb_dim), other=0.0)
-    v3 = tl.load(input_ptr + pid_b * stride_in_b + (d0 + 2) * stride_in_d,
-                  mask=g_mask & ((d0 + 2) < emb_dim), other=0.0)
+    v1 = tl.load(
+        input_ptr + pid_b * stride_in_b + d0 * stride_in_d,
+        mask=g_mask & (d0 < emb_dim),
+        other=0.0,
+    )
+    v2 = tl.load(
+        input_ptr + pid_b * stride_in_b + (d0 + 1) * stride_in_d,
+        mask=g_mask & ((d0 + 1) < emb_dim),
+        other=0.0,
+    )
+    v3 = tl.load(
+        input_ptr + pid_b * stride_in_b + (d0 + 2) * stride_in_d,
+        mask=g_mask & ((d0 + 2) < emb_dim),
+        other=0.0,
+    )
 
     z = tl.zeros_like(v1)
 
     # Step 1: temp = R * x (rotor on LEFT)
     t0, t1, t2, t3, t4, t5, t6, t7 = _gp_rotor_mv(
-        r_s, r_p12, r_p13, r_p23,
-        z, v1, v2, v3, z, z, z, z,
+        r_s,
+        r_p12,
+        r_p13,
+        r_p23,
+        z,
+        v1,
+        v2,
+        v3,
+        z,
+        z,
+        z,
+        z,
     )
 
     # Step 2: result = temp * R̃ (rotor on RIGHT, reverse negates bivectors)
     o0, o1, o2, o3, o4, o5, o6, o7 = _gp_mv_rotor(
-        t0, t1, t2, t3, t4, t5, t6, t7,
-        r_s, -r_p12, -r_p13, -r_p23,
+        t0,
+        t1,
+        t2,
+        t3,
+        t4,
+        t5,
+        t6,
+        t7,
+        r_s,
+        -r_p12,
+        -r_p13,
+        -r_p23,
     )
 
     # Store output multivectors [batch, n_groups, 8]
@@ -149,8 +207,8 @@ def _rotor_sandwich_kernel(
 
 
 def triton_rotor_sandwich(
-    input: torch.Tensor,     # [batch, emb_dim]
-    rotors: torch.Tensor,    # [n_groups, 4] packed as [s, b12, b13, b23]
+    input: torch.Tensor,  # [batch, emb_dim]
+    rotors: torch.Tensor,  # [n_groups, 4] packed as [s, b12, b13, b23]
 ) -> torch.Tensor:
     """Apply rotor sandwich R x R̃ using Triton.
 
@@ -167,17 +225,25 @@ def triton_rotor_sandwich(
     input_f32 = input.float().contiguous()
     rotors_f32 = rotors.float().contiguous()
 
-    output = torch.empty(batch_size, n_groups, 8,
-                         device=input.device, dtype=torch.float32)
+    output = torch.empty(
+        batch_size, n_groups, 8, device=input.device, dtype=torch.float32
+    )
 
     BLOCK_G = min(triton.next_power_of_2(n_groups), 128)
     grid = (batch_size, triton.cdiv(n_groups, BLOCK_G))
 
     _rotor_sandwich_kernel[grid](
-        input_f32, rotors_f32, output,
-        batch_size, emb_dim, n_groups,
-        input_f32.stride(0), input_f32.stride(1),
-        output.stride(0), output.stride(1), output.stride(2),
+        input_f32,
+        rotors_f32,
+        output,
+        batch_size,
+        emb_dim,
+        n_groups,
+        input_f32.stride(0),
+        input_f32.stride(1),
+        output.stride(0),
+        output.stride(1),
+        output.stride(2),
         BLOCK_G=BLOCK_G,
     )
 
@@ -191,19 +257,27 @@ def triton_rotor_sandwich(
 #   Single kernel launch for the entire quantize-dequantize cycle.
 # ============================================================================
 
+
 @triton.jit
 def _rotor_full_fused_kernel(
-    input_ptr, output_ptr,
+    input_ptr,
+    output_ptr,
     rotors_ptr,
-    c_scalar_ptr, c_vector_ptr, c_bivector_ptr, c_trivector_ptr,
-    batch_size, emb_dim,
+    c_scalar_ptr,
+    c_vector_ptr,
+    c_bivector_ptr,
+    c_trivector_ptr,
+    batch_size,
+    emb_dim,
     n_groups: tl.constexpr,
     n_scalar: tl.constexpr,
     n_vector: tl.constexpr,
     n_bivector: tl.constexpr,
     n_trivector: tl.constexpr,
-    stride_in_b, stride_in_d,
-    stride_out_b, stride_out_d,
+    stride_in_b,
+    stride_in_d,
+    stride_out_b,
+    stride_out_d,
     BLOCK_G: tl.constexpr,
 ):
     pid_b = tl.program_id(0)
@@ -213,27 +287,38 @@ def _rotor_full_fused_kernel(
     g_mask = g_offs < n_groups
 
     # Load rotor
-    r_s   = tl.load(rotors_ptr + g_offs * 4 + 0, mask=g_mask, other=1.0)
+    r_s = tl.load(rotors_ptr + g_offs * 4 + 0, mask=g_mask, other=1.0)
     r_p12 = tl.load(rotors_ptr + g_offs * 4 + 1, mask=g_mask, other=0.0)
     r_p13 = tl.load(rotors_ptr + g_offs * 4 + 2, mask=g_mask, other=0.0)
     r_p23 = tl.load(rotors_ptr + g_offs * 4 + 3, mask=g_mask, other=0.0)
 
     # Embed
     d0 = g_offs * 3
-    v1 = tl.load(input_ptr + pid_b * stride_in_b + d0 * stride_in_d,
-                  mask=g_mask & (d0 < emb_dim), other=0.0)
-    v2 = tl.load(input_ptr + pid_b * stride_in_b + (d0 + 1) * stride_in_d,
-                  mask=g_mask & ((d0 + 1) < emb_dim), other=0.0)
-    v3 = tl.load(input_ptr + pid_b * stride_in_b + (d0 + 2) * stride_in_d,
-                  mask=g_mask & ((d0 + 2) < emb_dim), other=0.0)
+    v1 = tl.load(
+        input_ptr + pid_b * stride_in_b + d0 * stride_in_d,
+        mask=g_mask & (d0 < emb_dim),
+        other=0.0,
+    )
+    v2 = tl.load(
+        input_ptr + pid_b * stride_in_b + (d0 + 1) * stride_in_d,
+        mask=g_mask & ((d0 + 1) < emb_dim),
+        other=0.0,
+    )
+    v3 = tl.load(
+        input_ptr + pid_b * stride_in_b + (d0 + 2) * stride_in_d,
+        mask=g_mask & ((d0 + 2) < emb_dim),
+        other=0.0,
+    )
 
     z = tl.zeros_like(v1)
 
     # Forward sandwich: temp = R * x, rotated = temp * R̃
     t0, t1, t2, t3, t4, t5, t6, t7 = _gp_rotor_mv(
-        r_s, r_p12, r_p13, r_p23, z, v1, v2, v3, z, z, z, z)
+        r_s, r_p12, r_p13, r_p23, z, v1, v2, v3, z, z, z, z
+    )
     o0, o1, o2, o3, o4, o5, o6, o7 = _gp_mv_rotor(
-        t0, t1, t2, t3, t4, t5, t6, t7, r_s, -r_p12, -r_p13, -r_p23)
+        t0, t1, t2, t3, t4, t5, t6, t7, r_s, -r_p12, -r_p13, -r_p23
+    )
 
     # Grade-aware quantization — vector only (e1, e2, e3)
     # Scalar/bivector: always zero after sandwich of grade-1 input
@@ -250,17 +335,28 @@ def _rotor_full_fused_kernel(
 
     # Inverse sandwich: temp2 = R̃ * q, final = temp2 * R
     t0, t1, t2, t3, t4, t5, t6, t7 = _gp_rotor_mv(
-        r_s, -r_p12, -r_p13, -r_p23, q0, q1, q2, q3, q4, q5, q6, q7)
+        r_s, -r_p12, -r_p13, -r_p23, q0, q1, q2, q3, q4, q5, q6, q7
+    )
     f0, f1, f2, f3, f4, f5, f6, f7 = _gp_mv_rotor(
-        t0, t1, t2, t3, t4, t5, t6, t7, r_s, r_p12, r_p13, r_p23)
+        t0, t1, t2, t3, t4, t5, t6, t7, r_s, r_p12, r_p13, r_p23
+    )
 
     # Extract grade-1 back to output
-    tl.store(output_ptr + pid_b * stride_out_b + d0 * stride_out_d,
-             f1, mask=g_mask & (d0 < emb_dim))
-    tl.store(output_ptr + pid_b * stride_out_b + (d0 + 1) * stride_out_d,
-             f2, mask=g_mask & ((d0 + 1) < emb_dim))
-    tl.store(output_ptr + pid_b * stride_out_b + (d0 + 2) * stride_out_d,
-             f3, mask=g_mask & ((d0 + 2) < emb_dim))
+    tl.store(
+        output_ptr + pid_b * stride_out_b + d0 * stride_out_d,
+        f1,
+        mask=g_mask & (d0 < emb_dim),
+    )
+    tl.store(
+        output_ptr + pid_b * stride_out_b + (d0 + 1) * stride_out_d,
+        f2,
+        mask=g_mask & ((d0 + 1) < emb_dim),
+    )
+    tl.store(
+        output_ptr + pid_b * stride_out_b + (d0 + 2) * stride_out_d,
+        f3,
+        mask=g_mask & ((d0 + 2) < emb_dim),
+    )
 
 
 def triton_rotor_full_fused(
@@ -286,9 +382,17 @@ def triton_rotor_full_fused(
     input_f32 = (input_f32 / norms).contiguous()
     rotors_f32 = rotors.float().contiguous()
     # Scalar/bivector centroids not used (zero grades), but kernel signature needs them
-    c_s = c_scalar.float().contiguous() if c_scalar is not None else c_vector.float().contiguous()
+    c_s = (
+        c_scalar.float().contiguous()
+        if c_scalar is not None
+        else c_vector.float().contiguous()
+    )
     c_v = c_vector.float().contiguous()
-    c_b = c_bivector.float().contiguous() if c_bivector is not None else c_vector.float().contiguous()
+    c_b = (
+        c_bivector.float().contiguous()
+        if c_bivector is not None
+        else c_vector.float().contiguous()
+    )
     c_t = c_trivector.float().contiguous()
 
     output = torch.empty_like(input_f32)
@@ -297,12 +401,24 @@ def triton_rotor_full_fused(
     grid = (batch_size, triton.cdiv(n_groups, BLOCK_G))
 
     _rotor_full_fused_kernel[grid](
-        input_f32, output, rotors_f32,
-        c_s, c_v, c_b, c_t,
-        batch_size, emb_dim, n_groups,
-        len(c_s), len(c_v), len(c_b), len(c_t),
-        input_f32.stride(0), input_f32.stride(1),
-        output.stride(0), output.stride(1),
+        input_f32,
+        output,
+        rotors_f32,
+        c_s,
+        c_v,
+        c_b,
+        c_t,
+        batch_size,
+        emb_dim,
+        n_groups,
+        len(c_s),
+        len(c_v),
+        len(c_b),
+        len(c_t),
+        input_f32.stride(0),
+        input_f32.stride(1),
+        output.stride(0),
+        output.stride(1),
         BLOCK_G=BLOCK_G,
     )
 
@@ -318,6 +434,7 @@ def triton_rotor_full_fused(
 # Computes Q@K^T by gathering centroids from quantized key indices.
 # ============================================================================
 
+
 @triton.autotune(
     configs=[
         triton.Config({"BLOCK_S": 32, "BLOCK_D": 64}, num_warps=4),
@@ -330,13 +447,25 @@ def triton_rotor_full_fused(
 )
 @triton.jit
 def _fused_rotor_attention_kernel(
-    Q_ptr, K_idx_ptr, K_norms_ptr, C_ptr, Out_ptr,
-    kv_len, head_dim: tl.constexpr,
-    n_q_heads, n_kv_heads, scale,
-    stride_q_bh, stride_q_d,
-    stride_ki_bh, stride_ki_s, stride_ki_d,
-    stride_kn_bh, stride_kn_s,
-    stride_o_bh, stride_o_s,
+    Q_ptr,
+    K_idx_ptr,
+    K_norms_ptr,
+    C_ptr,
+    Out_ptr,
+    kv_len,
+    head_dim: tl.constexpr,
+    n_q_heads,
+    n_kv_heads,
+    scale,
+    stride_q_bh,
+    stride_q_d,
+    stride_ki_bh,
+    stride_ki_s,
+    stride_ki_d,
+    stride_kn_bh,
+    stride_kn_s,
+    stride_o_bh,
+    stride_o_s,
     BLOCK_S: tl.constexpr,
     BLOCK_D: tl.constexpr,
 ):
@@ -362,10 +491,12 @@ def _fused_rotor_attention_kernel(
         q_ptrs = Q_ptr + pid_bh * stride_q_bh + d_offs * stride_q_d
         q_vals = tl.load(q_ptrs, mask=d_mask, other=0.0).to(tl.float32)
 
-        ki_ptrs = (K_idx_ptr
-                   + kv_bh * stride_ki_bh
-                   + s_offs[:, None] * stride_ki_s
-                   + d_offs[None, :] * stride_ki_d)
+        ki_ptrs = (
+            K_idx_ptr
+            + kv_bh * stride_ki_bh
+            + s_offs[:, None] * stride_ki_s
+            + d_offs[None, :] * stride_ki_d
+        )
         combined_mask = s_mask[:, None] & d_mask[None, :]
         k_idx = tl.load(ki_ptrs, mask=combined_mask, other=0).to(tl.int32)
 
@@ -409,23 +540,38 @@ def triton_fused_attention(
     kn_flat = key_norms.reshape(batch * n_kv_heads, kv_len).contiguous()
     centroids = centroids.contiguous().float()
 
-    out = torch.empty(batch * n_q_heads * q_len, kv_len,
-                      device=q_rotated.device, dtype=torch.float32)
+    out = torch.empty(
+        batch * n_q_heads * q_len, kv_len, device=q_rotated.device, dtype=torch.float32
+    )
 
     effective_q_heads = n_q_heads * q_len
 
     # Use grid lambda so autotuned BLOCK_S is used in grid calculation
-    grid = lambda meta: (batch * effective_q_heads,
-                         triton.cdiv(kv_len, meta['BLOCK_S']))
+    grid = lambda meta: (
+        batch * effective_q_heads,
+        triton.cdiv(kv_len, meta["BLOCK_S"]),
+    )
 
     _fused_rotor_attention_kernel[grid](
-        q_flat, ki_flat, kn_flat, centroids, out,
-        kv_len, head_dim,
-        effective_q_heads, n_kv_heads, scale,
-        q_flat.stride(0), q_flat.stride(1),
-        ki_flat.stride(0), ki_flat.stride(1), ki_flat.stride(2),
-        kn_flat.stride(0), kn_flat.stride(1),
-        out.stride(0), out.stride(1),
+        q_flat,
+        ki_flat,
+        kn_flat,
+        centroids,
+        out,
+        kv_len,
+        head_dim,
+        effective_q_heads,
+        n_kv_heads,
+        scale,
+        q_flat.stride(0),
+        q_flat.stride(1),
+        ki_flat.stride(0),
+        ki_flat.stride(1),
+        ki_flat.stride(2),
+        kn_flat.stride(0),
+        kn_flat.stride(1),
+        out.stride(0),
+        out.stride(1),
     )
 
     return out.reshape(batch, n_q_heads, q_len, kv_len)
@@ -439,12 +585,20 @@ def triton_fused_attention(
 #   R̃ q R  =  (R̃ * q) * R
 # ============================================================================
 
+
 @triton.jit
 def _rotor_inverse_sandwich_kernel(
-    input_ptr, rotors_ptr, output_ptr,
-    batch_size, emb_dim, n_groups: tl.constexpr,
-    stride_in_b, stride_in_g, stride_in_c,
-    stride_out_b, stride_out_d,
+    input_ptr,
+    rotors_ptr,
+    output_ptr,
+    batch_size,
+    emb_dim,
+    n_groups: tl.constexpr,
+    stride_in_b,
+    stride_in_g,
+    stride_in_c,
+    stride_out_b,
+    stride_out_d,
     BLOCK_G: tl.constexpr,
 ):
     pid_b = tl.program_id(0)
@@ -453,7 +607,7 @@ def _rotor_inverse_sandwich_kernel(
     g_offs = pid_g * BLOCK_G + tl.arange(0, BLOCK_G)
     g_mask = g_offs < n_groups
 
-    r_s   = tl.load(rotors_ptr + g_offs * 4 + 0, mask=g_mask, other=1.0)
+    r_s = tl.load(rotors_ptr + g_offs * 4 + 0, mask=g_mask, other=1.0)
     r_p12 = tl.load(rotors_ptr + g_offs * 4 + 1, mask=g_mask, other=0.0)
     r_p13 = tl.load(rotors_ptr + g_offs * 4 + 2, mask=g_mask, other=0.0)
     r_p23 = tl.load(rotors_ptr + g_offs * 4 + 3, mask=g_mask, other=0.0)
@@ -470,18 +624,29 @@ def _rotor_inverse_sandwich_kernel(
 
     # Inverse sandwich: temp = R̃ * x (LEFT), final = temp * R (RIGHT)
     t0, t1, t2, t3, t4, t5, t6, t7 = _gp_rotor_mv(
-        r_s, -r_p12, -r_p13, -r_p23, x0, x1, x2, x3, x4, x5, x6, x7)
+        r_s, -r_p12, -r_p13, -r_p23, x0, x1, x2, x3, x4, x5, x6, x7
+    )
     f0, f1, f2, f3, f4, f5, f6, f7 = _gp_mv_rotor(
-        t0, t1, t2, t3, t4, t5, t6, t7, r_s, r_p12, r_p13, r_p23)
+        t0, t1, t2, t3, t4, t5, t6, t7, r_s, r_p12, r_p13, r_p23
+    )
 
     # Extract grade-1 to output
     d0 = g_offs * 3
-    tl.store(output_ptr + pid_b * stride_out_b + d0 * stride_out_d,
-             f1, mask=g_mask & (d0 < emb_dim))
-    tl.store(output_ptr + pid_b * stride_out_b + (d0 + 1) * stride_out_d,
-             f2, mask=g_mask & ((d0 + 1) < emb_dim))
-    tl.store(output_ptr + pid_b * stride_out_b + (d0 + 2) * stride_out_d,
-             f3, mask=g_mask & ((d0 + 2) < emb_dim))
+    tl.store(
+        output_ptr + pid_b * stride_out_b + d0 * stride_out_d,
+        f1,
+        mask=g_mask & (d0 < emb_dim),
+    )
+    tl.store(
+        output_ptr + pid_b * stride_out_b + (d0 + 1) * stride_out_d,
+        f2,
+        mask=g_mask & ((d0 + 1) < emb_dim),
+    )
+    tl.store(
+        output_ptr + pid_b * stride_out_b + (d0 + 2) * stride_out_d,
+        f3,
+        mask=g_mask & ((d0 + 2) < emb_dim),
+    )
 
 
 def triton_rotor_inverse_sandwich(
@@ -495,17 +660,25 @@ def triton_rotor_inverse_sandwich(
     input_f32 = input_mv.float().contiguous()
     rotors_f32 = rotors.float().contiguous()
 
-    output = torch.empty(batch_size, emb_dim,
-                         device=input_mv.device, dtype=torch.float32)
+    output = torch.empty(
+        batch_size, emb_dim, device=input_mv.device, dtype=torch.float32
+    )
 
     BLOCK_G = min(triton.next_power_of_2(n_groups), 128)
     grid = (batch_size, triton.cdiv(n_groups, BLOCK_G))
 
     _rotor_inverse_sandwich_kernel[grid](
-        input_f32, rotors_f32, output,
-        batch_size, emb_dim, n_groups,
-        input_f32.stride(0), input_f32.stride(1), input_f32.stride(2),
-        output.stride(0), output.stride(1),
+        input_f32,
+        rotors_f32,
+        output,
+        batch_size,
+        emb_dim,
+        n_groups,
+        input_f32.stride(0),
+        input_f32.stride(1),
+        input_f32.stride(2),
+        output.stride(0),
+        output.stride(1),
         BLOCK_G=BLOCK_G,
     )
 
@@ -516,6 +689,7 @@ def triton_rotor_inverse_sandwich(
 # Helper: Pack RotorQuant rotors into [n_groups, 4] format for Triton
 # ============================================================================
 
+
 def pack_rotors_for_triton(rotors: torch.Tensor) -> torch.Tensor:
     """Convert RotorQuant rotors from [n_groups, 8] to [n_groups, 4] packed format.
 
@@ -523,9 +697,133 @@ def pack_rotors_for_triton(rotors: torch.Tensor) -> torch.Tensor:
     has non-zero components only at indices [0, 4, 5, 6] (scalar + bivector).
     We pack these as [s, e12, e13, e23] for the Triton kernels.
     """
-    return torch.stack([
-        rotors[..., 0],  # scalar
-        rotors[..., 4],  # e12
-        rotors[..., 5],  # e13
-        rotors[..., 6],  # e23
-    ], dim=-1)
+    return torch.stack(
+        [
+            rotors[..., 0],  # scalar
+            rotors[..., 4],  # e12
+            rotors[..., 5],  # e13
+            rotors[..., 6],  # e23
+        ],
+        dim=-1,
+    )
+
+
+# ============================================================================
+# Class wrappers for TurboQuantFactory integration
+# ============================================================================
+
+import torch.nn as nn
+from .clifford import make_random_rotor
+from ..common.lloyd_max import LloydMaxCodebook
+
+
+class RotorQuantMSE(nn.Module):
+    def __init__(
+        self,
+        d: int,
+        bits: int,
+        seed: int = 42,
+        device: str = "cpu",
+    ):
+        super().__init__()
+        self.d = d
+        self.bits = bits
+        self.device = device
+        self.seed = seed
+
+        self.n_groups = (d + 2) // 3
+
+        cb = LloydMaxCodebook(d, bits)
+        self.register_buffer("centroids", cb.centroids.to(device))
+
+        rotors_list = []
+        for i in range(self.n_groups):
+            r = make_random_rotor((), device=device, seed=seed + i)
+            rotors_list.append(r)
+        self.register_buffer("rotors", torch.stack(rotors_list))
+
+        self.register_buffer(
+            "rotors_packed",
+            pack_rotors_for_triton(self.rotors),
+        )
+
+    def forward(self, x):
+        x_hat = triton_rotor_full_fused(
+            x,
+            self.rotors_packed,
+            self.centroids,
+            self.centroids,
+            self.centroids,
+            self.centroids,
+        )
+        return x_hat, {"x": x, "_x": x, "_q": x_hat}
+
+    def quantize(self, x):
+        return self.forward(x)
+
+    def dequantize(self, indices):
+        if isinstance(indices, dict):
+            if "_q" in indices:
+                return indices["_q"]
+            x = indices.get("x") or indices.get("_x")
+            if x is None:
+                return indices
+        else:
+            x = indices
+        return self.forward(x)[0]
+
+
+class RotorQuantProd(nn.Module):
+    def __init__(
+        self,
+        d: int,
+        bits: int,
+        qjl_dim: Optional[int] = None,
+        seed: int = 42,
+        device: str = "cpu",
+    ):
+        super().__init__()
+        self.d = d
+        self.bits = bits
+        self.mse_bits = max(bits - 1, 1)
+        self.qjl_dim = qjl_dim or d
+        self.device = device
+        self.seed = seed
+
+        self.mse = RotorQuantMSE(d, self.mse_bits, seed=seed, device=device)
+
+        gen = torch.Generator(device="cpu")
+        gen.manual_seed(seed + 1)
+        S = torch.randn(self.qjl_dim, d, generator=gen)
+        self.register_buffer("S", S.to(device))
+
+    def quantize(self, x):
+        x_hat, mse_indices = self.mse(x)
+        residual = x - x_hat
+        residual_norm = torch.norm(residual, dim=-1, keepdim=True)
+        projected = residual @ self.S.T
+        qjl_signs = torch.sign(projected)
+        qjl_signs[qjl_signs == 0] = 1.0
+        return {
+            "mse_indices": mse_indices,
+            "qjl_signs": qjl_signs,
+            "residual_norm": residual_norm.squeeze(-1),
+        }
+
+    def dequantize(self, compressed):
+        return self.mse.dequantize(compressed["mse_indices"])
+
+    def inner_product(self, y, compressed):
+        import math
+
+        x_mse = self.mse.dequantize(compressed["mse_indices"])
+        term1 = (y * x_mse).sum(dim=-1)
+        y_projected = y @ self.S.T
+        qjl_ip = (y_projected * compressed["qjl_signs"]).sum(dim=-1)
+        m = self.qjl_dim
+        correction_scale = math.sqrt(math.pi / 2) / m
+        term2 = compressed["residual_norm"] * correction_scale * qjl_ip
+        return term1 + term2
+
+    def forward(self, x):
+        return self.quantize(x)

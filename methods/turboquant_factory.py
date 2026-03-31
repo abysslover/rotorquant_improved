@@ -342,6 +342,8 @@ def register_all_methods():
     from .rotorquant.rotorquant import RotorQuantMSE as RQPyTorchMSE
     from .rotorquant.rotorquant import RotorQuantProd as RQPyTorchProd
     from .rotorquant.rotorquant import RotorQuantKVCache
+    from .rotorquant.rotorquant_triton import RotorQuantMSE as RQTritonMSE
+    from .rotorquant.rotorquant_triton import RotorQuantProd as RQTritonProd
 
     from .turboquant.turboquant_cpu import TurboQuantMSE as TQCPUMSE
     from .turboquant.turboquant_cpu import TurboQuantProd as TQCPUProd
@@ -375,6 +377,9 @@ def register_all_methods():
         quantizer_cls=RQPyTorchMSE,
         prod_cls=RQPyTorchProd,
         kvcache_cls=RotorQuantKVCache,
+    )
+    TurboQuantFactory.register(
+        "rotorquant", "triton", quantizer_cls=RQTritonMSE, prod_cls=RQTritonProd
     )
 
     TurboQuantFactory.register(

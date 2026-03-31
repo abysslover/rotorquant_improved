@@ -1,0 +1,130 @@
+# Method + Engine Implementation Status
+
+## Overview
+
+This document tracks which method+engine combinations are implemented for TurboQuantProdFactory.
+
+### Available Methods
+- **planarquant**: 2D Givens rotation (fastest, by ParaMind2025)
+- **isoquant**: 4D quaternion rotation (recommended default)
+- **rotorquant**: Clifford 3D rotation (legacy)
+- **turboquant**: Dense d×d rotation (Google reference)
+
+### Available Engines
+| Engine | Backend | Device | Description |
+|--------|---------|--------|-------------|
+| cpu | python | cpu | Pure Python/PyTorch on CPU (no GPU) |
+| torch_cpu | python | cpu | PyTorch operations on CPU |
+| cuda_kernel | cuda | cuda | Compiled CUDA .so kernels |
+| torch_cuda | python | cuda | PyTorch operations on CUDA |
+| triton | triton | cuda | Triton GPU kernels |
+
+---
+
+## Current Implementation Status (TESTED 2026-04-01)
+
+### PlanarQuant
+
+| Engine | Status | Notes |
+|--------|--------|-------|
+| cpu | ✅ IMPLEMENTED | |
+| torch_cpu | ✅ IMPLEMENTED | |
+| cuda_kernel | ✅ IMPLEMENTED | Uses planarquant_pytorch.py |
+| torch_cuda | ✅ IMPLEMENTED | |
+| triton | ✅ IMPLEMENTED | |
+
+---
+
+### IsoQuant
+
+| Engine | Status | Notes |
+|--------|--------|-------|
+| cpu | ✅ IMPLEMENTED | |
+| torch_cpu | ✅ IMPLEMENTED | |
+| cuda_kernel | ⚠️ NEEDS C++ WRAPPER | isoclinic_fused.so exists but no Python wrapper |
+| torch_cuda | ✅ IMPLEMENTED | Uses triton backend |
+| triton | ✅ IMPLEMENTED | |
+
+---
+
+### RotorQuant
+
+| Engine | Status | Notes |
+|--------|--------|-------|
+| cpu | ✅ IMPLEMENTED | |
+| torch_cpu | ✅ IMPLEMENTED | |
+| cuda_kernel | ✅ IMPLEMENTED | |
+| torch_cuda | ✅ IMPLEMENTED | |
+| triton | ⚠️ NEEDS PYTHON WRAPPER | Kernels exist in rotorquant_triton.py |
+
+---
+
+### TurboQuant
+
+| Engine | Status | Notes |
+|--------|--------|-------|
+| cpu | ✅ IMPLEMENTED | |
+| torch_cpu | ✅ IMPLEMENTED | |
+| cuda_kernel | ✅ IMPLEMENTED | |
+| torch_cuda | ✅ IMPLEMENTED | |
+| triton | ❌ NOT IMPLEMENTED | Needs new implementation |
+
+---
+
+## Factory Registration Summary (Actual)
+
+| Method | python (cpu) | cuda | triton |
+|--------|-------------|------|--------|
+| planarquant | ✅ | ✅ | ✅ |
+| isoquant | ✅ | ⚠️ | ✅ |
+| rotorquant | ✅ | ✅ | ⚠️ |
+| turboquant | ✅ | ✅ | ❌ |
+
+---
+
+## Missing Implementations Status
+
+### 1. isoquant + cuda_kernel
+- **Status**: Needs C++ wrapper development (NOT quick Python work)
+- **Kernel exists**: `methods/isoquant/cuda_kernels/isoclinic_fused.so`
+- **Issue**: No Python wrapper that loads and uses this .so
+- **Work required**: Create C++/Python bridge or use ctypes
+
+### 2. rotorquant + triton  
+- **Status**: NEEDS PYTHON WRAPPER
+- **Kernels exist**: `methods/rotorquant/rotorquant_triton.py`
+- **Fix**: Add class wrappers (IsoQuantMSE-style) and register in factory
+- **Work required**: ~50 lines of Python wrapper code + registration
+
+### 3. turboquant + triton
+- **Status**: NOT IMPLEMENTED
+- **Work required**: Full implementation of dense rotation in Triton
+
+---
+
+## Implementation Progress
+
+### Completed
+- [x] Analyze codebase - DONE 2026-04-01
+- [x] Create docs/ directory and status document
+- [x] Create plan.md - DONE 2026-04-01
+
+### In Progress
+- [ ] rotorquant + triton: Add class wrappers and register
+
+### Pending
+- [ ] isoquant + cuda_kernel: Requires C++ wrapper (document only)
+- [ ] turboquant + triton: Full implementation
+
+---
+
+## CUDA Kernels Available
+
+| Method | Kernel File | Purpose | Wrapper Status |
+|--------|-------------|---------|----------------|
+| planarquant | planar2_fused.so | Fused 2D rotation | ✅ Available via pytorch |
+| isoquant | isoclinic_fused.so | Fused isoclinic rotation | ❌ No Python wrapper |
+| rotorquant | rotor_fused.so | Fused Clifford rotation | ✅ Available |
+| turboquant | quantization.so | Lloyd-Max quantization | ✅ Available |
+| turboquant | cuda_qjl_quant.so | QJL quantization | ✅ Available |
+| turboquant | cuda_qjl_score.so | QJL attention scores | ✅ Available |
