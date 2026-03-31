@@ -4,6 +4,9 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+.mcp.json
 .eggs/
 *.so
-.mcp.json
+
+# Benchmark results
+benchmarks/results/*.tsv
