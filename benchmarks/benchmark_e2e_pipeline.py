@@ -5,10 +5,7 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from methods.planarquant import PlanarQuantProd
-from methods.isoquant import IsoQuantProd
-from methods.rotorquant import RotorQuantProd
-from methods.turboquant import TurboQuantProd
+from methods.turboquant_factory import TurboQuantProdFactory
 
 
 def format_time(ms):
@@ -35,19 +32,21 @@ def run_benchmark(device="cuda"):
             keys = torch.randn(batch * heads, seq_len, d, device=device)
             keys = keys / torch.norm(keys, dim=-1, keepdim=True)
 
-            for method_name, ProdClass in [
-                ("planarquant", PlanarQuantProd),
-                ("isoquant", IsoQuantProd),
-                ("rotorquant", RotorQuantProd),
-                ("turboquant", TurboQuantProd),
-            ]:
-                for engine in ["pytorch"]:
+            for method_name in ["planarquant", "isoquant", "rotorquant", "turboquant"]:
+                for engine in ["torch_cuda"]:
                     try:
-                        dev = device if engine == "pytorch" else "cpu"
+                        dev = device if engine == "torch_cuda" else "cpu"
                         if dev == "cpu" and method_name == "turboquant":
                             continue
 
-                        prod = ProdClass(d=d, bits=bits, seed=42, device=dev)
+                        prod = TurboQuantProdFactory.create(
+                            method=method_name,
+                            engine=engine,
+                            d=d,
+                            bits=bits,
+                            seed=42,
+                            device=dev,
+                        )
 
                         torch.cuda.synchronize()
                         for _ in range(n_warmup):

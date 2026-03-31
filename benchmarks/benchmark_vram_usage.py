@@ -22,9 +22,9 @@ def run_benchmark(device="cuda"):
         fp16_bytes = n_kv_heads * seq_len * d * 2
 
         for method_name in ["planarquant", "isoquant", "rotorquant", "turboquant"]:
-            for engine in ["pytorch"]:
+            for engine in ["torch_cuda"]:
                 try:
-                    dev = device if engine == "pytorch" else "cpu"
+                    dev = device if engine == "torch_cuda" else "cpu"
                     if dev == "cpu" and method_name == "turboquant":
                         continue
 

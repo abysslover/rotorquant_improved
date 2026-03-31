@@ -5,10 +5,7 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from methods.planarquant import PlanarQuantMSE
-from methods.isoquant import IsoQuantMSE
-from methods.rotorquant import RotorQuantMSE
-from methods.turboquant import TurboQuantMSE
+from methods.turboquant_factory import TurboQuantProdFactory
 
 
 def run_benchmark():
@@ -22,29 +19,31 @@ def run_benchmark():
 
     print(f"  d={d}, n_vectors={n}, device={device}\n")
     print(
-        f"  {'method':>12s}  {'engine':>8s}  {'bits':>5s}  {'mse':>12s}  {'theory':>12s}  {'ratio':>10s}"
+        f"  {'method':>12s}  {'engine':>10s}  {'bits':>5s}  {'mse':>12s}  {'theory':>12s}  {'ratio':>10s}"
     )
-    print("  " + "-" * 75)
+    print("  " + "-" * 77)
 
     results = []
 
     for bits in [1, 2, 3, 4]:
         theory = math.sqrt(3) * math.pi / 2 * (1 / (4**bits))
 
-        for method_name, MSEClass in [
-            ("planarquant", PlanarQuantMSE),
-            ("isoquant", IsoQuantMSE),
-            ("rotorquant", RotorQuantMSE),
-            ("turboquant", TurboQuantMSE),
-        ]:
-            for engine in ["cpu", "pytorch"]:
+        for method_name in ["planarquant", "isoquant", "rotorquant", "turboquant"]:
+            for engine in ["cpu", "torch_cuda"]:
                 try:
-                    dev = device if engine == "pytorch" else "cpu"
+                    dev = device if engine == "torch_cuda" else "cpu"
 
-                    if dev == "cpu" and method_name == "turboquant":
+                    if method_name == "turboquant" and engine == "cpu":
                         continue
 
-                    q = MSEClass(d=d, bits=bits, seed=42, device=dev)
+                    q = TurboQuantProdFactory.create_quantizer(
+                        method=method_name,
+                        engine=engine,
+                        d=d,
+                        bits=bits,
+                        seed=42,
+                        device=dev,
+                    )
 
                     x = torch.randn(n, d, device=dev)
                     x = x / torch.norm(x, dim=-1, keepdim=True)
@@ -65,7 +64,7 @@ def run_benchmark():
                     )
 
                     print(
-                        f"  {method_name:>12s}  {engine:>8s}  {bits:>5d}  {mse:>12.6f}  {theory:>12.6f}  {ratio:>10.3f}"
+                        f"  {method_name:>12s}  {engine:>10s}  {bits:>5d}  {mse:>12.6f}  {theory:>12.6f}  {ratio:>10.3f}"
                     )
                 except Exception as e:
                     pass

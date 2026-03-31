@@ -5,10 +5,7 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from methods.planarquant import PlanarQuantMSE, PlanarQuantProd
-from methods.isoquant import IsoQuantMSE, IsoQuantProd
-from methods.rotorquant import RotorQuantMSE, RotorQuantProd
-from methods.turboquant import TurboQuantMSE, TurboQuantProd
+from methods.turboquant_factory import TurboQuantProdFactory
 
 
 def run_benchmark():
@@ -22,27 +19,29 @@ def run_benchmark():
 
     print(f"  d={d}, n={n}, device={device}\n")
     print(
-        f"  {'method':>12s}  {'engine':>8s}  {'bits':>5s}  {'ip_mse':>10s}  {'bias':>10s}  {'corr':>10s}"
+        f"  {'method':>12s}  {'engine':>10s}  {'bits':>5s}  {'ip_mse':>10s}  {'bias':>10s}  {'corr':>10s}"
     )
-    print("  " + "-" * 65)
+    print("  " + "-" * 67)
 
     results = []
 
     for bits in [2, 3, 4]:
-        for method_name, MSEClass, ProdClass in [
-            ("planarquant", PlanarQuantMSE, PlanarQuantProd),
-            ("isoquant", IsoQuantMSE, IsoQuantProd),
-            ("rotorquant", RotorQuantMSE, RotorQuantProd),
-            ("turboquant", TurboQuantMSE, TurboQuantProd),
-        ]:
-            for engine in ["cpu", "pytorch"]:
+        for method_name in ["planarquant", "isoquant", "rotorquant", "turboquant"]:
+            for engine in ["cpu", "torch_cuda"]:
                 try:
-                    dev = device if engine == "pytorch" else "cpu"
+                    dev = device if engine == "torch_cuda" else "cpu"
 
-                    if dev == "cpu" and method_name == "turboquant":
+                    if method_name == "turboquant" and engine == "cpu":
                         continue
 
-                    prod = ProdClass(d=d, bits=bits, seed=42, device=dev)
+                    prod = TurboQuantProdFactory.create(
+                        method=method_name,
+                        engine=engine,
+                        d=d,
+                        bits=bits,
+                        seed=42,
+                        device=dev,
+                    )
 
                     x = torch.randn(n, d, device=dev)
                     y = torch.randn(n, d, device=dev)
@@ -74,7 +73,7 @@ def run_benchmark():
                     )
 
                     print(
-                        f"  {method_name:>12s}  {engine:>8s}  {bits:>5d}  {ip_mse:>10.6f}  {bias:>10.6f}  {corr:>10.6f}"
+                        f"  {method_name:>12s}  {engine:>10s}  {bits:>5d}  {ip_mse:>10.6f}  {bias:>10.6f}  {corr:>10.6f}"
                     )
                 except Exception as e:
                     pass

@@ -10,6 +10,7 @@ build/
 
 # Benchmark results
 benchmarks/results/*.tsv
+benchmarks/refs/
 
 # History
 history/

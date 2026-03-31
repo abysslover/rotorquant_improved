@@ -31,9 +31,9 @@ def run_benchmark(device="cuda"):
 
     for bits in [2, 3, 4]:
         for method_name in ["planarquant", "isoquant", "rotorquant", "turboquant"]:
-            for engine in ["pytorch"]:
+            for engine in ["torch_cuda"]:
                 try:
-                    dev = device if engine == "pytorch" else "cpu"
+                    dev = device if engine == "torch_cuda" else "cpu"
                     if dev == "cpu" and method_name == "turboquant":
                         continue
 

@@ -13,10 +13,7 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from methods.planarquant import PlanarQuantMSE, PlanarQuantProd
-from methods.isoquant import IsoQuantMSE, IsoQuantProd
-from methods.rotorquant import RotorQuantMSE, RotorQuantProd
-from methods.turboquant import TurboQuantMSE, TurboQuantProd
+from methods.turboquant_factory import TurboQuantProdFactory
 
 
 def format_time(ms):
@@ -42,13 +39,8 @@ def run_benchmark(device="cuda"):
             x = torch.randn(n, d, device=device)
             x = x / torch.norm(x, dim=-1, keepdim=True)
 
-            for method_name, MSEClass, ProdClass in [
-                ("planarquant", PlanarQuantMSE, PlanarQuantProd),
-                ("isoquant", IsoQuantMSE, IsoQuantProd),
-                ("rotorquant", RotorQuantMSE, RotorQuantProd),
-                ("turboquant", TurboQuantMSE, TurboQuantProd),
-            ]:
-                for engine in ["cpu", "pytorch"]:
+            for method_name in ["planarquant", "isoquant", "rotorquant", "turboquant"]:
+                for engine in ["cpu", "torch_cuda"]:
                     if engine == "cpu":
                         dev = "cpu"
                     else:
@@ -58,7 +50,14 @@ def run_benchmark(device="cuda"):
                         continue
 
                     try:
-                        prod = ProdClass(d=d, bits=bits, seed=42, device=dev)
+                        prod = TurboQuantProdFactory.create(
+                            method=method_name,
+                            engine=engine,
+                            d=d,
+                            bits=bits,
+                            seed=42,
+                            device=dev,
+                        )
 
                         if dev.startswith("cuda"):
                             torch.cuda.synchronize()

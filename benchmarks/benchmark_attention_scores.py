@@ -5,10 +5,7 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from methods.planarquant import PlanarQuantMSE, PlanarQuantProd
-from methods.isoquant import IsoQuantMSE, IsoQuantProd
-from methods.rotorquant import RotorQuantMSE, RotorQuantProd
-from methods.turboquant import TurboQuantMSE, TurboQuantProd
+from methods.turboquant_factory import TurboQuantProdFactory
 
 
 def format_time(ms):
@@ -56,19 +53,21 @@ def run_benchmark(device="cuda"):
         )
         print(f"  fp16: seq={seq_len:>6d}: {format_time(fp_ms):>10s}")
 
-        for method_name, MSEClass, ProdClass in [
-            ("planarquant", PlanarQuantMSE, PlanarQuantProd),
-            ("isoquant", IsoQuantMSE, IsoQuantProd),
-            ("rotorquant", RotorQuantMSE, RotorQuantProd),
-            ("turboquant", TurboQuantMSE, TurboQuantProd),
-        ]:
-            for engine in ["pytorch"]:
+        for method_name in ["planarquant", "isoquant", "rotorquant", "turboquant"]:
+            for engine in ["torch_cuda"]:
                 try:
-                    dev = device if engine == "pytorch" else "cpu"
+                    dev = device if engine == "torch_cuda" else "cpu"
                     if dev == "cpu" and method_name == "turboquant":
                         continue
 
-                    prod = ProdClass(d=d, bits=bits, seed=42, device=dev)
+                    prod = TurboQuantProdFactory.create(
+                        method=method_name,
+                        engine=engine,
+                        d=d,
+                        bits=bits,
+                        seed=42,
+                        device=dev,
+                    )
 
                     x = keys.reshape(-1, d).float()
                     y = (
@@ -100,20 +99,6 @@ def run_benchmark(device="cuda"):
                         _ = prod.inner_product(y_expanded, compressed)
                     torch.cuda.synchronize()
 
-                    t0 = time.perf_counter()
-                    for _ in range(n_iter):
-                        _ = prod.inner_product(y_expanded, compressed)
-                    torch.cuda.synchronize()
-
-                    t0 = time.perf_counter()
-                    for _ in range(n_iter):
-                        _ = prod.inner_product(y_expanded, compressed)
-                    torch.cuda.synchronize()
-
-                    t0 = time.perf_counter()
-                    for _ in range(n_iter):
-                        _ = prod.inner_product(y_expanded, compressed)
-                    torch.cuda.synchronize()
                     ms = (time.perf_counter() - t0) / n_iter * 1000
 
                     results.append(

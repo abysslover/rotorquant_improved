@@ -4,10 +4,7 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from methods.planarquant import PlanarQuantMSE
-from methods.isoquant import IsoQuantMSE
-from methods.rotorquant import RotorQuantMSE
-from methods.turboquant import TurboQuantMSE
+from methods.turboquant_factory import TurboQuantProdFactory
 
 
 def run_benchmark():
@@ -19,25 +16,27 @@ def run_benchmark():
     d = 128
 
     print(f"  d={d}, device={device}\n")
-    print(f"  {'method':>12s}  {'engine':>8s}  {'params':>10s}  {'ratio':>10s}")
-    print("  " + "-" * 50)
+    print(f"  {'method':>12s}  {'engine':>10s}  {'params':>10s}  {'ratio':>10s}")
+    print("  " + "-" * 52)
 
     results = []
 
-    for method_name, MSEClass in [
-        ("planarquant", PlanarQuantMSE),
-        ("isoquant", IsoQuantMSE),
-        ("rotorquant", RotorQuantMSE),
-        ("turboquant", TurboQuantMSE),
-    ]:
-        for engine in ["cpu", "pytorch"]:
+    for method_name in ["planarquant", "isoquant", "rotorquant", "turboquant"]:
+        for engine in ["cpu", "torch_cuda"]:
             try:
-                dev = device if engine == "pytorch" else "cpu"
+                dev = device if engine == "torch_cuda" else "cpu"
 
-                if dev == "cpu" and method_name == "turboquant":
+                if method_name == "turboquant" and engine == "cpu":
                     continue
 
-                q = MSEClass(d=d, bits=3, seed=42, device=dev)
+                q = TurboQuantProdFactory.create_quantizer(
+                    method=method_name,
+                    engine=engine,
+                    d=d,
+                    bits=3,
+                    seed=42,
+                    device=dev,
+                )
 
                 n_params = sum(p.numel() for p in q.parameters()) + sum(
                     b.numel() for b in q.buffers()
@@ -56,7 +55,7 @@ def run_benchmark():
                 )
 
                 print(
-                    f"  {method_name:>12s}  {engine:>8s}  {n_params:>10d}  {ratio:>10.1f}x"
+                    f"  {method_name:>12s}  {engine:>10s}  {n_params:>10d}  {ratio:>10.1f}x"
                 )
             except Exception as e:
                 pass
