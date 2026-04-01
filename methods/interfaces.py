@@ -147,12 +147,16 @@ class KVCacheBase:
         d_key: int,
         d_value: int,
         bits: int = 3,
+        key_bits: Optional[int] = None,
+        value_bits: Optional[int] = None,
         seed: int = 42,
         device: str = "cpu",
     ):
         self.d_key = d_key
         self.d_value = d_value
         self.bits = bits
+        self.key_bits = key_bits if key_bits is not None else bits
+        self.value_bits = value_bits if value_bits is not None else bits
         self.seed = seed
         self.device = device
 
@@ -178,8 +182,25 @@ class KVCacheBase:
         """
         raise NotImplementedError
 
-    def get_values(self) -> torch.Tensor:
-        """Reconstruct all cached values."""
+    def get_values(self, group_size: Optional[int] = None) -> torch.Tensor:
+        """Reconstruct all cached values with optional GQA expansion.
+
+        Args:
+            group_size: Expansion factor for GQA (e.g., 4 for 8Q:2KV).
+                       If None, no expansion is performed.
+        """
+        raise NotImplementedError
+
+    def memory_usage_bits(self) -> dict:
+        """
+        Calculate memory usage statistics.
+
+        Returns:
+            Dictionary with:
+                - 'total_bits': Total bits used by cache
+                - 'fp16_bits': Bits if stored in FP16
+                - 'compression_ratio': Ratio of FP16 to compressed size
+        """
         raise NotImplementedError
 
     def __len__(self):

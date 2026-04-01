@@ -1,0 +1,84 @@
+% arXiv:2504.19874v1 [cs.LG] 28 Apr 2025
+
+\documentclass[11pt]{article}
+\title{TurboQuant: Online Vector Quantization with Near-optimal Distortion Rate}
+
+\author{
+Amir Zandieh \\
+Google Research \\
+\texttt{zandieh@google.com}
+\and
+Majid Daliri \\
+New York University \\
+\texttt{daliri.majid@nyu.edu}
+\and
+Majid Hadian \\
+Google DeepMind \\
+\texttt{majidh@google.com}
+\and
+Vahab Mirrokni \\
+Google Research \\
+\texttt{mirrokni@google.com}
+}
+
+\date{April 2025}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Vector quantization, a problem rooted in Shannon's source coding theory, aims to quantize high-dimensional Euclidean vectors while minimizing distortion in their geometric structure. We propose TurboQuant to address both mean-squared error (MSE) and inner product distortion, overcoming limitations of existing methods that fail to achieve optimal distortion rates. Our data-oblivious algorithms, suitable for online applications, achieve near-optimal distortion rates (within a small constant factor) across all bit-widths and dimensions. TurboQuant achieves this by randomly rotating input vectors, inducing a concentrated Beta distribution on coordinates, and leveraging the near-independence property of distinct coordinates in high dimensions to simply apply optimal scalar quantizers per each coordinate. Recognizing that MSE-optimal quantizers introduce bias in inner product estimation, we propose a two-stage approach: applying an MSE quantizer followed by a 1-bit Quantized JL (QJL) transform on the residual, resulting in an unbiased inner product quantizer. We also provide a formal proof of the information-theoretic lower bounds on best achievable distortion rate by any vector quantizer, demonstrating that TurboQuant closely matches these bounds, differing only by a small constant ($\approx 2.7$) factor. Experimental results validate our theoretical findings, showing that for KV cache quantization, we achieve absolute quality neutrality with 3.5 bits per channel and marginal quality degradation with 2.5 bits per channel. Furthermore, in nearest neighbor search tasks, our method outperforms existing product quantization techniques in recall while reducing indexing time to virtually zero.
+\end{abstract}
+
+\section{Introduction}
+
+Vector quantization (VQ) in Euclidean space is crucial for efficiently handling high-dimensional vectors across a spectrum of computational domains, from training and deploying large-scale AI and deep learning models to powering vector databases for search/retrieval systems. The core objective is to compress high dimensional vectors by quantizing them--converting floating-point coordinate values to low-bitwidth integers--while minimizing distortion, quantified by metrics such as mean-squared error (MSE) or inner product errors.
+
+A key application of VQ is in the deployment of AI models, including large language models (LLMs). As LLM capabilities depend heavily on their model size and context length, serving them requires substantial memory demands and increased inference latency. This latency is primarily attributed to communication bottlenecks between HBM and SRAM on accelerators, or across distributed clusters.
+
+Decoder based transformer models present another compelling use case. These models must store key/value (KV) embeddings from previously generated tokens in the KV cache, the size of which scales with both model size and context length. Therefore, reducing the KV cache size without compromising accuracy is essential. In this context, the preservation of the Euclidean structure of these embedding vectors--their inner products and distances--is crucial for maintaining model performance. VQ emerges as the most suitable framework for addressing this challenge.
+
+\section{Key Contributions}
+
+\subsection{MSE-Optimized TurboQuant}
+Our first VQ algorithm is designed to minimize MSE distortion. To achieve this, we apply a random rotation to the input vectors, thereby inducing a Beta distribution on each coordinate. In high dimensions, the distribution of each coordinate converges to a Gaussian distribution. Furthermore, any two distinct coordinates become nearly uncorrelated and almost independent. This near-independence allows us to quantize each coordinate using optimal scalar quantization, disregarding interactions between different coordinates.
+
+\subsection{Inner Product TurboQuant}
+We show that MSE-optimal quantizers are biased for inner product estimation. Our solution is a two-stage algorithm: first applying MSE-optimal quantizer with bit-width one less than the target budget, then applying a QJL (Quantized Johnson-Lindenstrauss) transform on the residual error. This provides an unbiased and low-distortion quantizer for inner products.
+
+\subsection{Theoretical Lower Bounds}
+We leverage Shannon's lower bound and Yao's minimax principle to prove information-theoretic lower bounds on achievable distortion rates. TurboQuant's MSE distortion is provably within a factor of at most $\frac{\sqrt{3}\pi}{2} \approx 2.7$ of the information-theoretical lower bound.
+
+\subsection{Experimental Results}
+\begin{itemize}
+    \item KV cache quantization with absolute quality neutrality at 3.5 bits per channel
+    \item Marginal quality degradation at 2.5 bits per channel
+    \item Perfect long-context retrieval in needle-in-a-haystack tasks
+    \item Outperforms existing product quantization in recall with near-zero indexing time
+    \item Compression ratio exceeding 5x for KV cache
+\end{itemize}
+
+\section{Related Work}
+
+\subsection{Beginnings of VQ}
+Vector quantization theory started with Shannon's seminal work on achievable distortion-rate functions. Gersho's influential paper popularized high-resolution theory and introduced lattice vector quantization.
+
+\subsection{Online vs Offline Quantization}
+Online (data-oblivious) quantization methods apply instantly without needing data-specific tuning, making them suitable for real-time applications. Offline methods require heavy preprocessing and are unsuitable for dynamic data scenarios.
+
+\subsection{Product Quantization}
+In nearest neighbor search, Product Quantization (PQ) enables efficient compression of database vectors. However, most PQ algorithms require extensive preprocessing during indexing, making them ill-suited for online settings.
+
+\section{Conclusion}
+
+TurboQuant provides a lightweight, online-capable, and accelerator-friendly vector quantization solution with provably optimal distortion bounds. The algorithm's two-stage approach combining MSE-optimized quantization with QJL transform achieves near-optimal performance for both MSE and inner product distortion, making it ideal for KV cache compression in LLMs and other real-time applications.
+
+\begin{thebibliography}{99}
+\bibitem{bib48} C. E. Shannon, ``A mathematical theory of communication,'' Bell system technical journal, 1948.
+\bibitem{bib49} C. E. Shannon, ``Coding theorems for a discrete source,'' IRE Trans. Inf. Theory, 1958.
+\bibitem{bib61} P. Zador, ``Asymptotic quantization error of continuous signals,'' IEEE Trans. Inf. Theory, 1982.
+\bibitem{bib62} M. Hadian et al., ``Quantized Johnson-Lindenstrauss transforms,'' NeurIPS, 2024.
+\end{thebibliography}
+
+\end{document}

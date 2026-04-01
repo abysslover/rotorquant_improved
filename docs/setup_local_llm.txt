@@ -1,0 +1,151 @@
+# Local LLM Server Setup Guide
+
+This guide explains how to connect opencode to a local llama.cpp server running via llama-swap.
+
+## Prerequisites
+
+- llama.cpp compiled with Metal support (or CUDA)
+- llama-swap running on `localhost:8080`
+- opencode installed
+
+## Step 1: Start llama.cpp Server
+
+```bash
+./llama-server -m model.gguf --host 0.0.0.0 --port 8080
+```
+
+## Step 2: Verify Server is Running
+
+```bash
+curl http://localhost:8080/v1/models
+```
+
+Expected response:
+```json
+{
+  "data": [
+    {"id": "qwen3.5-9b", ...},
+    {"id": "qwen3.5-27b", ...},
+    {"id": "qwen3.5-35b", ...}
+  ]
+}
+```
+
+## Step 3: Update opencode Configuration
+
+### 3.1 Edit `~/.config/opencode/opencode.json`
+
+Add the ollama provider section with llama.cpp configuration:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": ["oh-my-opencode@latest"],
+  "provider": {
+    "ollama": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "llama.cpp (llama-swap)",
+      "options": {
+        "baseURL": "http://localhost:8080/v1"
+      },
+      "models": {
+        "qwen3.5-35b": {
+          "name": "Qwen3.5 35B"
+        },
+        "qwen3.5-27b": {
+          "name": "Qwen3.5 27B"
+        },
+        "qwen3.5-9b": {
+          "name": "Qwen3.5 9B"
+        }
+      }
+    }
+  }
+}
+```
+
+### 3.2 Edit `~/.config/opencode/oh-my-opencode.json`
+
+Update all agents and categories to use the local model:
+
+```json
+{
+  "$schema": "https://raw.githubusercontent.com/code-yeongyu/oh-my-opencode/master/assets/oh-my-opencode.schema.json",
+  "agents": {
+    "sisyphus": {
+      "model": "ollama/qwen3.5-35b"
+    },
+    "hephaestus": {
+      "model": "ollama/qwen3.5-35b"
+    },
+    "oracle": {
+      "model": "ollama/qwen3.5-35b"
+    },
+    "librarian": {
+      "model": "ollama/qwen3.5-35b"
+    },
+    "explore": {
+      "model": "ollama/qwen3.5-35b"
+    },
+    "metis": {
+      "model": "ollama/qwen3.5-35b"
+    },
+    "momus": {
+      "model": "ollama/qwen3.5-35b"
+    }
+  },
+  "categories": {
+    "visual-engineering": {
+      "model": "ollama/qwen3.5-35b"
+    },
+    "ultrabrain": {
+      "model": "ollama/qwen3.5-35b"
+    },
+    "deep": {
+      "model": "ollama/qwen3.5-35b"
+    },
+    "quick": {
+      "model": "ollama/qwen3.5-35b"
+    }
+  }
+}
+```
+
+## Step 4: Restart opencode
+
+Restart the opencode application to apply the new configuration.
+
+## Verification
+
+Test the connection:
+
+```bash
+curl -s http://localhost:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "qwen3.5-9b",
+    "messages": [{"role": "user", "content": "Hello"}],
+    "max_tokens": 5
+  }'
+```
+
+Expected response:
+```json
+{
+  "choices": [{"message": {"content": "..."}}]
+}
+```
+
+## Troubleshooting
+
+### Connection refused
+- Verify llama.cpp server is running: `curl http://localhost:8080/api/version`
+- Check firewall settings
+- Ensure llama-swap is configured correctly
+
+### Model not found
+- Verify model is loaded: `curl http://localhost:8080/v1/models`
+- Check model name spelling in config
+
+### Permission denied
+- Ensure config files are readable: `chmod 644 ~/.config/opencode/*.json`

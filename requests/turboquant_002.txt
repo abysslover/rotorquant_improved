@@ -1,0 +1,513 @@
+# TurboQuant CUDA 커널 로드 실패 문제 해결
+
+## 문제 설명
+
+### 현재 상황
+- `methods/turboquant/cuda_kernels/` 에 빌드된 `.so` 파일이 존재
+- `turboquant_cuda_kernel.py` 가 모듈 레벨에서 `import torch` 실행
+- CUDA 라이브러리를 로드하기 전에 `import torch` 가 먼저 실행됨
+
+### 문제 증상
+1. `turboquant_factory.py` 의 `ensure_cuda_kernels_built()` 가 호출될 때마다 빌드 시도
+2. 빌드 실패 (linker error: `libm.so.6 not found`, `libmvec.so.1 not found`)
+3. `_CUDA_AVAILABLE = False` 로 설정
+4. `experiments/turboquant_facade.py` 실행 시:
+   - `mse_ratio_*` 열에만 fallback 값 표시
+   - 다른 모든 열에서 `cuda_kernel` 값이 NA
+
+### 근본 원인
+**LD_LIBRARY_PATH 설정 타이밍 문제:**
+
+`turboquant_cuda_kernel.py` 의 현재 구조:
+```python
+import torch  # ← 라인 14: 모듈 레벨에서 먼저 실행됨
+import os
+
+# LD_LIBRARY_PATH 설정 (라인 31-58):
+#   이 시점에는 이미 torch 가 로드되어 있음
+#   torch 가 CUDA 라이브러리를 찾을 수 없음
+```
+
+**문제 흐름:**
+1. `import torch` 실행 → PyTorch가 CUDA 라이브러리를 로드 시도
+2. `LD_LIBRARY_PATH` 설정 → 너무 늦음 (torch 가 이미 로드됨)
+3. `libc10.so`, `libm.so.6` 등을 찾지 못함
+4. 모듈 로드 실패 → `_CUDA_AVAILABLE = False`
+
+**빌드 실패 원인:**
+```
+/data/anaconda3/compiler_compat/ld: /lib/x86_64-linux-gnu/libm.so.6: 
+  unknown type [0x13] section `.relr.dyn'
+/data/anaconda3/compiler_compat/ld: cannot find /lib/x86_64-linux-gnu/libm.so.6
+collect2: error: ld returned 1 exit status
+```
+- conda 환경의 linker 가 시스템 라이브러리와 호환되지 않음
+- PyTorch 가 컴파일된 CUDA 라이브러리를 사용해야 함
+
+---
+
+## 수정해야 할 파일
+
+### 1. methods/turboquant/turboquant_cuda_kernel.py
+
+#### 수정 위치: 모듈 최상위 (라인 1-62)
+
+**현재 코드:**
+```python
+"""
+CUDA backend for TurboQuant.
+...
+"""
+
+import math
+import warnings
+import os
+import sys
+import torch  # ← 라인 14: 모듈 레벨에서 먼저 실행됨
+import torch.nn as nn
+from typing import Optional, Tuple
+from scipy.linalg import hadamard
+
+from ..interfaces import QuantizerBase, ProdQuantizerBase, KVCacheBase
+from .common_utils import generate_rotation_matrix_torch as generate_rotation_matrix
+from .common_utils import generate_qjl_matrix_torch as generate_qjl_matrix
+
+# Try importing pre-built CUDA kernels from methods/turboquant/cuda_kernels/ directory
+_CUDA_AVAILABLE = False
+_CUDA_LOAD_ERROR = None
+try:
+    import importlib.util
+    import sys
+    import ctypes
+
+    # CRITICAL: Set LD_LIBRARY_PATH BEFORE importing torch or any CUDA-dependent modules
+    # This ensures CUDA libraries are found during module initialization
+    _torch_lib_dir = None
+    _cuda_lib_dir = None
+
+    # Try to find PyTorch's lib directory without importing torch
+    # Search common paths
+    possible_torch_paths = [
+        "/data/anaconda3/lib/python3.10/site-packages/torch/lib",
+        "/data/anaconda3/envs/py310/lib/python3.10/site-packages/torch/lib",
+        "/data/anaconda3/lib/python3.9/site-packages/torch/lib",
+    ]
+
+    for path in possible_torch_paths:
+        if os.path.exists(path):
+            _torch_lib_dir = path
+            break
+
+    if _torch_lib_dir:
+        _cuda_lib_dir = os.path.join(_torch_lib_dir, "cuda", "lib")
+
+        # Add to LD_LIBRARY_PATH BEFORE importing torch
+        ld_library_path = os.environ.get("LD_LIBRARY_PATH", "")
+        if _cuda_lib_dir not in ld_library_path:
+            os.environ["LD_LIBRARY_PATH"] = _cuda_lib_dir + ":" + ld_library_path
+        if _torch_lib_dir not in ld_library_path:
+            os.environ["LD_LIBRARY_PATH"] = _torch_lib_dir + ":" + ld_library_path
+        print(f"[INFO] Set LD_LIBRARY_PATH to include CUDA libs: {_cuda_lib_dir}")
+
+    # Now import torch and other dependencies (after LD_LIBRARY_PATH is set)
+    import torch  # ← 이미 위에서 import 했음! 중복
+    import torch.nn as nn
+    import ctypes
+    import ctypes.util
+
+    # Try importing pre-built CUDA kernels...
+    # ...
+```
+
+**문제:**
+1. `import torch` 가 라인 14 에 모듈 레벨에 존재
+2. LD_LIBRARY_PATH 설정 코드 (라인 31-58) 가 import torch **이후**에 실행됨
+3. 두 번째 `import torch` (라인 61) 가 중복
+
+**수정 후 코드:**
+```python
+"""
+CUDA backend for TurboQuant.
+
+Wraps the QJL CUDA kernels with a Python-friendly interface that integrates
+into TurboQuant's two-stage quantization pipeline.
+
+Falls back to pure PyTorch if kernels are not available.
+"""
+
+import math
+import warnings
+import os
+import sys
+from typing import Optional, Tuple
+from scipy.linalg import hadamard
+
+from ..interfaces import QuantizerBase, ProdQuantizerBase, KVCacheBase
+from .common_utils import generate_rotation_matrix_torch as generate_rotation_matrix
+from .common_utils import generate_qjl_matrix_torch as generate_qjl_matrix
+
+# CRITICAL: Set LD_LIBRARY_PATH BEFORE importing torch or any CUDA-dependent modules
+# This ensures CUDA libraries are found during module initialization
+_torch_lib_dir = None
+_cuda_lib_dir = None
+
+# Try to find PyTorch's lib directory without importing torch
+# Search common paths
+possible_torch_paths = [
+    "/data/anaconda3/lib/python3.10/site-packages/torch/lib",
+    "/data/anaconda3/envs/py310/lib/python3.10/site-packages/torch/lib",
+    "/data/anaconda3/lib/python3.9/site-packages/torch/lib",
+]
+
+for path in possible_torch_paths:
+    if os.path.exists(path):
+        _torch_lib_dir = path
+        break
+
+if _torch_lib_dir:
+    _cuda_lib_dir = os.path.join(_torch_lib_dir, "cuda", "lib")
+
+    # Add to LD_LIBRARY_PATH BEFORE importing torch
+    ld_library_path = os.environ.get("LD_LIBRARY_PATH", "")
+    if _cuda_lib_dir not in ld_library_path:
+        os.environ["LD_LIBRARY_PATH"] = _cuda_lib_dir + ":" + ld_library_path
+    if _torch_lib_dir not in ld_library_path:
+        os.environ["LD_LIBRARY_PATH"] = _torch_lib_dir + ":" + ld_library_path
+    print(f"[INFO] Set LD_LIBRARY_PATH to include CUDA libs: {_cuda_lib_dir}")
+
+# Now import torch and other dependencies (after LD_LIBRARY_PATH is set)
+import torch
+import torch.nn as nn
+import ctypes
+import ctypes.util
+
+# Try importing pre-built CUDA kernels from methods/turboquant/cuda_kernels/ directory
+_CUDA_AVAILABLE = False
+_CUDA_LOAD_ERROR = None
+try:
+    import importlib.util
+    # ... (나머지 코드)
+```
+
+**변경 사항:**
+1. **모듈 레벨 import torch 제거**: `import torch` 를 LD_LIBRARY_PATH 설정 **이후**로 이동
+2. **중복 import 제거**: 위에서 이미 import 하므로 아래서 다시 import 하지 않음
+3. **순서 변경**: 
+   - 먼저 `os` 로 PyTorch lib 경로 탐색
+   - `LD_LIBRARY_PATH` 설정
+   - 그 다음 `import torch`
+
+**설명:**
+- Python 의 import 는 모듈 레벨에서 실행됨
+- `os.environ["LD_LIBRARY_PATH"]` 설정은 즉시 적용되지만, 이미 import 된 모듈에는 영향 없음
+- torch 가 로드될 때 CUDA 라이브러리를 찾을 수 있어야 함
+- 따라서 `import torch` 전에 LD_LIBRARY_PATH 설정이 필수
+
+---
+
+### 2. methods/turboquant_factory.py (추가 수정)
+
+#### 수정 위치: ensure_cuda_kernels_built() 함수 (라인 28-105)
+
+**현재 코드:**
+```python
+def ensure_cuda_kernels_built() -> bool:
+    """
+    TurboQuant CUDA 커널 빌드 상태 확인 및 필요시 자동 빌드 시도.
+    
+    먼저 빌드된 커널 파일이 cuda_kernels/에 있는지 확인하고,
+    있으면 바로 True 를 반환합니다. 빌드는 파일이 없는 경우에만 시도합니다.
+    """
+    if not torch.cuda.is_available():
+        return False
+
+    try:
+        # Import from correct path: methods/turboquant/turboquant_cuda_kernel.py
+        from methods.turboquant.turboquant_cuda_kernel import is_cuda_available
+
+        if is_cuda_available():
+            return True
+    except ImportError as e:
+        print(f"[INFO] CUDA kernel import failed: {e}")
+        pass
+
+    # Check if pre-built kernels exist in cuda_kernels/
+    base_dir = Path(__file__).resolve().parent
+    cuda_kernels_dir = base_dir / "turboquant" / "cuda_kernels"
+
+    if cuda_kernels_dir.exists():
+        # Check for required .so files
+        import fnmatch
+        required_files = [...]
+        has_all_files = True
+        for pattern in required_files:
+            if not any(fnmatch.filter(os.listdir(cuda_kernels_dir), pattern)):
+                has_all_files = False
+                break
+
+        if has_all_files:
+            print(f"[INFO] Pre-built CUDA kernels found")
+            # Try importing again
+            try:
+                from methods.turboquant.turboquant_cuda_kernel import is_cuda_available
+                if is_cuda_available():
+                    return True
+            except ImportError as e:
+                print(f"[INFO] CUDA kernel import still failed: {e}")
+                return False  # ← 빌드 시도 안함
+```
+
+**문제:**
+- `ensure_cuda_kernels_built()` 가 import 실패 시 바로 False 반환
+- LD_LIBRARY_PATH 수정이 반영되기 전에 재시도하지 않음
+
+**수정 후 코드:**
+```python
+def ensure_cuda_kernels_built() -> bool:
+    """
+    TurboQuant CUDA 커널 빌드 상태 확인 및 필요시 자동 빌드 시도.
+    
+    먼저 빌드된 커널 파일이 cuda_kernels/에 있는지 확인하고,
+    있으면 바로 True 를 반환합니다. 빌드는 파일이 없는 경우에만 시도합니다.
+    
+    Returns:
+        bool: True if CUDA kernels are available and working, False otherwise
+    """
+    if not torch.cuda.is_available():
+        return False
+
+    # Try importing CUDA kernels
+    try:
+        from methods.turboquant.turboquant_cuda_kernel import is_cuda_available
+
+        if is_cuda_available():
+            return True
+    except ImportError as e:
+        print(f"[INFO] CUDA kernel import failed: {e}")
+        pass
+
+    # Check if pre-built kernels exist in cuda_kernels/
+    base_dir = Path(__file__).resolve().parent
+    cuda_kernels_dir = base_dir / "turboquant" / "cuda_kernels"
+
+    if cuda_kernels_dir.exists():
+        import fnmatch
+        required_files = [
+            "cuda_qjl_quant.cpython-*.so",
+            "cuda_qjl_score.cpython-*.so",
+            "cuda_qjl_gqa_score.cpython-*.so",
+            "quantization.cpython-*.so",
+        ]
+        has_all_files = True
+        for pattern in required_files:
+            if not any(fnmatch.filter(os.listdir(cuda_kernels_dir), pattern)):
+                has_all_files = False
+                break
+
+        if has_all_files:
+            print(f"[INFO] Pre-built CUDA kernels found")
+            print(f"[INFO] Attempting reload with updated LD_LIBRARY_PATH")
+            
+            # Clear module cache to force reload
+            if "methods.turboquant.turboquant_cuda_kernel" in sys.modules:
+                del sys.modules["methods.turboquant.turboquant_cuda_kernel"]
+            
+            # Try importing again
+            try:
+                from methods.turboquant.turboquant_cuda_kernel import is_cuda_available
+                if is_cuda_available():
+                    return True
+            except ImportError as e:
+                print(f"[INFO] CUDA kernel import still failed after reload: {e}")
+                # Don't attempt to rebuild - let user run build_cuda_kernels.sh manually
+                return False
+    
+    # No pre-built kernels found, or import failed
+    return False
+```
+
+**변경 사항:**
+1. **모듈 캐시 제거**: `del sys.modules["methods.turboquant.turboquant_cuda_kernel"]`
+2. **재시도 로직 추가**: LD_LIBRARY_PATH 수정 후 재import 시도
+3. **명확한 에러 메시지**: 빌드 시도 없이 수동 빌드 권장
+
+---
+
+## 검증 방법
+
+### 1. LD_LIBRARY_PATH 설정 검증
+```bash
+cd /data/git_llm/turboquant_tests/rotorquant_improved
+
+python3 << 'EOF'
+import os
+
+# LD_LIBRARY_PATH 설정
+os.environ['LD_LIBRARY_PATH'] = '/data/anaconda3/envs/py310/lib/python3.10/site-packages/torch/lib/cuda/lib:/data/anaconda3/envs/py310/lib/python3.10/site-packages/torch/lib:' + os.environ.get('LD_LIBRARY_PATH', '')
+
+print(f"LD_LIBRARY_PATH: {os.environ.get('LD_LIBRARY_PATH')[:200]}...")
+
+# torch import 테스트
+import torch
+print(f"PyTorch version: {torch.__version__}")
+print(f"CUDA available: {torch.cuda.is_available()}")
+EOF
+```
+
+**예상 결과:**
+```
+LD_LIBRARY_PATH: /data/anaconda3/envs/py310/lib/python3.10/site-packages/torch/lib/cuda/lib:...
+PyTorch version: 2.8.0+cu129
+CUDA available: True
+```
+
+### 2. CUDA 커널 로드 검증
+```bash
+cd /data/git_llm/turboquant_tests/rotorquant_improved
+
+python3 << 'EOF'
+from methods.turboquant.turboquant_cuda_kernel import is_cuda_available, _CUDA_AVAILABLE
+
+print(f"CUDA_AVAILABLE: {_CUDA_AVAILABLE}")
+print(f"is_cuda_available(): {is_cuda_available()}")
+
+# 모듈 로드 확인
+import sys
+for mod_name in ["cuda_qjl_quant", "cuda_qjl_score", "cuda_qjl_gqa_score", "quantization"]:
+    if mod_name in sys.modules:
+        print(f"{mod_name} loaded: True")
+    else:
+        print(f"{mod_name} loaded: False")
+EOF
+```
+
+**예상 결과:**
+```
+[INFO] Set LD_LIBRARY_PATH to include CUDA libs: /data/anaconda3/envs/py310/lib/python3.10/site-packages/torch/lib/cuda/lib
+CUDA_AVAILABLE: True
+is_cuda_available(): True
+cuda_qjl_quant loaded: True
+cuda_qjl_score loaded: True
+cuda_qjl_gqa_score loaded: True
+quantization loaded: True
+```
+
+### 3. Facade 테스트
+```bash
+cd /data/git_llm/turboquant_tests/rotorquant_improved
+
+python experiments/turboquant_facade.py 2>&1 | grep -A10 "TEST SUMMARY"
+```
+
+**예상 결과:**
+```
+[2026-04-01 23:XX:XX] [INFO] TEST SUMMARY
+[2026-04-01 23:XX:XX] [INFO] ======================================================================
+[2026-04-01 23:XX:XX] [INFO]   Total: 16
+[2026-04-01 23:XX:XX] [INFO]   Passed: 14  # ← CUDA test 추가
+[2026-04-01 23:XX:XX] [INFO]   Warnings: 0  # ← CUDA WARN 제거
+[2026-04-01 23:XX:XX] [INFO]   Failed: 2
+[2026-04-01 23:XX:XX] [INFO]   Skipped: 0
+```
+
+### 4. TSV 검증
+```bash
+head -20 experiments/turboquant_metrics.tsv
+```
+
+**예상 결과:**
+```
+metric_name	cpu	torch_cpu	torch_cuda	cuda_kernel	triton	description
+attention_latency_ms	3.023376	1.592880	0.083656	0.072326	0.072256	Attention score latency (lower = faster)
+compression_ratio_2	8.000000	8.000000	8.000000	8.000000	8.000000	KV cache compression ratio at 2-bit (higher = better)
+compression_ratio_3	5.333333	5.333333	5.333333	5.333333	5.333333	KV cache compression ratio at 3-bit (higher = better)
+compression_ratio_4	4.000000	4.000000	4.000000	4.000000	4.000000	KV cache compression ratio at 4-bit (higher = better)
+correlation_2	0.798506	0.808526	0.803587	0.803320	0.803320	Inner product correlation at 2-bit (target: > 0.75)
+correlation_3	0.916687	0.920839	0.923920	0.923058	0.923058	Inner product correlation at 3-bit (target: > 0.8)
+correlation_4	0.974335	0.976929	0.974307	0.976078	0.976078	Inner product correlation at 4-bit (target: > 0.8)
+...
+quantization_latency_ms	72.872305	14.529406	0.131207	0.142394	0.142394	Quantization latency (lower = faster)
+```
+
+**확인 사항:**
+- `cuda_kernel` 열에 NA 값이 없음
+- 모든 metric 에 실제 수치 값이 표시됨
+- `triton` 값과 유사한 범위 (CUDA 커널이 제대로 작동)
+
+---
+
+## 추가 고려사항
+
+### 1. 환경 변수 설정
+`LD_LIBRARY_PATH` 설정은 Python 스크립트 내부에서 수행되지만,
+더 안정적인 방법을 원한다면 `export` 명령어를 사용할 수 있습니다:
+
+```bash
+export LD_LIBRARY_PATH=/data/anaconda3/envs/py310/lib/python3.10/site-packages/torch/lib/cuda/lib:/data/anaconda3/envs/py310/lib/python3.10/site-packages/torch/lib:$LD_LIBRARY_PATH
+python experiments/turboquant_facade.py
+```
+
+### 2. 빌드 문제 해결
+만약 빌드 문제가 지속된다면:
+
+```bash
+cd methods/turboquant/csrc
+
+# Clean previous build
+rm -rf build/
+
+# Set environment variables
+export TORCH_CUDA_ARCH_LIST=8.6
+export CUDA_PATH=/usr/local/cuda
+export CC=/usr/bin/gcc
+export CXX=/usr/bin/g++
+export LD_LIBRARY_PATH=/data/anaconda3/envs/py310/lib/python3.10/site-packages/torch/lib/cuda/lib:/data/anaconda3/envs/py310/lib/python3.10/site-packages/torch/lib:$LD_LIBRARY_PATH
+
+# Build
+python setup.py build_ext --inplace
+```
+
+### 3. conda 환경 사용 권장
+빌드 문제는 conda 환경의 linker 문제일 수 있습니다:
+
+```bash
+# py310 conda 환경 사용
+conda activate py310
+
+# 빌드
+cd methods/turboquant/csrc
+bash build_cuda_kernels.sh
+```
+
+---
+
+## 요약
+
+| 파일 | 수정 위치 | 변경 내용 |
+|------|-----------|-----------|
+| `turboquant_cuda_kernel.py` | 라인 1-62 | `import torch` 를 LD_LIBRARY_PATH 설정 이후로 이동, 중복 import 제거 |
+| `turboquant_factory.py` | 라인 28-105 | 모듈 캐시 제거 및 재시도 로직 추가, 빌드 시도 생략 |
+
+**예상 결과:**
+- CUDA 커널이 올바르게 로드됨
+- `turboquant_metrics.tsv` 에 cuda_kernel 열의 모든 값이 실제 수치로 채워짐
+- CUDA Compilation test 가 PASS
+- 빌드 시도 오류 메시지 제거
+
+---
+
+## 관련 파일
+
+- `methods/turboquant/turboquant_cuda_kernel.py` - CUDA 커널 로드 모듈
+- `methods/turboquant_factory.py` - CUDA 커널 빌드 관리
+- `methods/turboquant/csrc/build_cuda_kernels.sh` - 수동 빌드 스크립트
+- `experiments/turboquant_facade.py` - 테스트 실행 스크립트
+
+---
+
+## 참고 사항
+
+1. **LD_LIBRARY_PATH 타이밍 중요**: `import torch` 전에 반드시 설정
+2. **모듈 캐시 관리**: `sys.modules` 에서 이전 모듈 제거 후 재import 필요
+3. **빌드 자동화 지양**: 이미 빌드된 커널이 있으면 재빌드 시도하지 않음
+4. **에러 메시지 명확화**: 사용자에게 수동 빌드 권장

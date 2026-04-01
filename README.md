@@ -344,7 +344,6 @@ turboquant/
   turboquant.py              # TurboQuant: dense rotation baseline
   lloyd_max.py               # Lloyd-Max optimal scalar quantizer
   compressors.py             # Asymmetric inner product compressors
-  cuda_backend.py            # QJL CUDA kernel wrappers
   benchmark_isoquant.py      # All variants benchmark (Planar/Iso/Rotor)
   benchmark_google_parity.py # Google TurboQuant parity benchmark
   benchmark_perplexity.py    # Perplexity benchmark

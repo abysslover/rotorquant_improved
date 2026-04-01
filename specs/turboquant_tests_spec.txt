@@ -1,0 +1,634 @@
+# TurboQuant Test Specification
+
+**Version**: 2026-04-01  
+**Purpose**: Comprehensive test metrics for validation of TurboQuant implementation  
+**Baseline**: FP16 (full precision), Theory Bound (from paper)
+
+---
+
+## 1. Test Categories
+
+### 1.1 Core Quantization Tests
+
+| Test ID | Name | Metric | Baseline | Pass Criteria | Priority |
+|---------|------|--------|----------|---------------|----------|
+| T1 | MSE Distortion | MSE (mean) | Theory bound | MSE < 1.5 × theory | P0 |
+| T2 | Inner Product Bias | Bias, RMSE | 0.0 | |bias| < 0.01, corr > 0.95 | P0 |
+| T3 | Codebook Symmetry | Centroid sum | 0.0 | sum < 0.01 | P0 |
+| T4 | Orthogonality | ||Pi·Pi^T - I|| | 0.0 | ||·|| < 1e-5 | P0 |
+
+### 1.2 Compression Tests
+
+| Test ID | Name | Metric | Baseline | Pass Criteria | Priority |
+|---------|------|--------|----------|---------------|----------|
+| T5 | Memory Calculation | Total bits | Formula | Exact match | P0 |
+| T6 | Compression Ratio | FP16 / compressed | Theoretical | Within 1% | P0 |
+| T7 | Bit Packing | Storage format | uint8 indices | Verified | P1 |
+
+### 1.3 KV Cache Tests
+
+| Test ID | Name | Metric | Baseline | Pass Criteria | Priority |
+|---------|------|--------|----------|---------------|----------|
+| T8 | Attention Scores | Cosine similarity | FP16 | > 0.99 | P0 |
+| T9 | Top-1 Match Rate | % correct | FP16 | > 95% | P0 |
+| T10 | Top-5 Match Rate | % correct | FP16 | > 99% | P0 |
+| T11 | Needle Rank | Position in ranked list | 0 | < 5 | P0 |
+| T12 | GQA Expansion | Shape correctness | Expected | Exact match | P0 |
+| T13 | QJL Removal Verification | Fields absent | None | qjl_signs, residual_norm absent | P0 |
+| T14 | Multi-Append Operations | Cache length | Expected | Exact match | P0 |
+| T15 | Asymmetric Bits Allocation | Total bits | Formula | Exact match | P0 |
+| T16 | Factory Integration | API consistency | Expected | All methods work | P0 |
+
+### 1.4 Performance Tests
+
+| Test ID | Name | Metric | Baseline | Pass Criteria | Priority |
+|---------|------|--------|----------|---------------|----------|
+| T17 | Quantization Latency | ms/vector | PyTorch | Within 2× | P1 |
+| T18 | Attention Latency | ms/query | FP16 | < 2× FP16 | P1 |
+| T19 | Triton Speedup | µs | PyTorch | > 10× | P1 |
+| T20 | GPU Speedup | d=128, n=8192 | PyTorch | > 50× | P1 |
+
+### 1.5 Quality Tests
+
+| Test ID | Name | Metric | Baseline | Pass Criteria | Priority |
+|---------|------|--------|----------|---------------|----------|
+| T21 | Perplexity (wikitext-2) | PPL | FP16 | < 2× FP16 | P0 |
+| T22 | Needle-in-Haystack | Pass rate | 100% | > 95% | P0 |
+| T23 | Long Context (65K) | Pass rate | 100% | > 90% | P1 |
+| T24 | PPL at Scale | Delta vs FP16 | 0% | < 50% | P1 |
+
+### 1.6 Engine Consistency Tests
+
+| Test ID | Name | Metric | Baseline | Pass Criteria | Priority |
+|---------|------|--------|----------|---------------|----------|
+| T25 | Python vs NumPy | MSE | python | < 1% diff | P0 |
+| T26 | CPU vs CUDA | MSE | cpu | < 2% diff | P0 |
+| T27 | All Engines | Memory calc | python | Exact match | P0 |
+| T28 | Factory Pattern | API consistency | Expected | All backends | P0 |
+
+---
+
+## 2. Detailed Test Specifications
+
+### 2.1 T1: MSE Distortion (Core)
+
+**Purpose**: Verify quantization matches theoretical bounds
+
+**Config**:
+- Dimensions: d = [64, 128, 256]
+- Bit widths: bits = [1, 2, 3, 4]
+- Vectors: n = 2000 unit vectors
+- Device: cpu
+
+**Procedure**:
+```python
+for d in [64, 128, 256]:
+    for bits in [1, 2, 3, 4]:
+        quantizer = TurboQuantMSE(d, bits, seed=42, device="cpu")
+        x = torch.randn(2000, d)
+        x = x / x.norm(dim=-1, keepdim=True)
+        x_hat, _ = quantizer(x)
+        mse = ((x - x_hat) ** 2).mean()
+        
+        theory = (sqrt(3) * pi / 2) * (1 / (4 ** bits))
+        ratio = mse / theory
+        
+        assert ratio < 1.5, f"MSE ratio {ratio} exceeds 1.5× theory"
+```
+
+**Expected Results**:
+
+| bits | Theory | Expected MSE | Max Allowed |
+|------|--------|--------------|-------------|
+| 1 | 0.680 | ~0.5 | 1.02 |
+| 2 | 0.170 | ~0.12 | 0.255 |
+| 3 | 0.0425 | ~0.034 | 0.064 |
+| 4 | 0.0106 | ~0.009 | 0.016 |
+
+---
+
+### 2.2 T2: Inner Product Unbiasedness (QJL)
+
+**Purpose**: Verify QJL provides unbiased inner product estimates
+
+**Config**:
+- d = 128
+- n_trials = 2000
+- bits = [2, 3, 4]
+
+**Procedure**:
+```python
+for bits in [2, 3, 4]:
+    quantizer = TurboQuantProd(d, bits, seed=42)
+    
+    x = torch.randn(n_trials, d) / norm
+    y = torch.randn(n_trials, d) / norm
+    
+    true_ip = (x * y).sum(dim=-1)
+    comp = quantizer.quantize(x)
+    est_ip = quantizer.inner_product(y, comp)
+    
+    bias = (est_ip - true_ip).mean()
+    rmse = ((est_ip - true_ip) ** 2).mean().sqrt()
+    corr = corrcoef(true_ip, est_ip)[0, 1]
+    
+    assert abs(bias) < 0.01, f"Bias {bias} too large"
+    assert corr > 0.95, f"Correlation {corr} too low"
+```
+
+**Expected Results**:
+
+| bits | Expected Bias | Expected RMSE | Expected Corr |
+|------|---------------|---------------|---------------|
+| 2 | ~0.001 | ~0.04 | > 0.85 |
+| 3 | ~0.0006 | ~0.04 | > 0.87 |
+| 4 | ~0.0007 | ~0.02 | > 0.96 |
+
+---
+
+### 2.3 T8: Attention Score Cosine Similarity
+
+**Purpose**: Verify compressed KV cache produces similar attention scores
+
+**Config**:
+- Model: Qwen2.5-3B (2 KV heads)
+- seq_len = [1024, 4096, 8192]
+- bits = [2, 3, 4]
+
+**Procedure**:
+```python
+# Load model and get KV cache
+model = AutoModelForCausalLM.from_pretrained("Qwen/Qwen2.5-3B-Instruct")
+cache = model(inputs).past_key_values
+
+for bits in [2, 3, 4]:
+    for layer_idx in range(n_layers):
+        keys = cache[layer_idx].keys  # (1, H, S, D)
+        
+        key_comp = TurboQuantCompressorV2(D, bits, seed=layer_idx)
+        compressed_k = key_comp.compress(keys)
+        
+        query = keys[:, :, -1:, :]  # Last token query
+        real_scores = query @ keys.transpose(-2, -1)
+        tq_scores = key_comp.asymmetric_attention_scores(query, compressed_k)
+        
+        # Cosine similarity of score vectors
+        cos_sim = cosine_similarity(real_scores, tq_scores)
+        
+        assert cos_sim > 0.99, f"Cosine sim {cos_sim} too low"
+```
+
+**Pass Criteria**:
+- Cosine similarity > 0.99
+- Top-1 match rate > 95%
+- Top-5 match rate > 99%
+
+---
+
+### 2.4 T11: Needle-in-Haystack
+
+**Purpose**: Verify compressed cache can retrieve specific tokens
+
+**Config**:
+- seq_len = [512, 2048, 8192]
+- needle_pos = seq_len // 3
+- bits = [2, 3, 4]
+
+**Procedure**:
+```python
+keys = torch.randn(seq_len, d) / norm
+needle = keys[needle_pos].clone()
+query = needle.unsqueeze(0)
+
+quantizer = TurboQuantProd(d, bits)
+compressed = quantizer.quantize(keys)
+ips = quantizer.inner_product(query.expand(seq_len, -1), compressed)
+
+top_idx = ips.argmax().item()
+found = (top_idx == needle_pos)
+top5 = ips.topk(5).indices.tolist()
+in_top5 = needle_pos in top5
+
+assert found or in_top5, f"Needle not found: top={top_idx}"
+```
+
+**Pass Criteria**:
+- EXACT match for all configs
+- Top-5 coverage: 100%
+
+---
+
+### 2.5 T17: Perplexity (wikitext-2)
+
+**Purpose**: Verify autoregressive generation quality
+
+**Config**:
+- Model: Mistral-7B, Gemma-2-2b, Qwen2.5-3B
+- Dataset: wikitext-2
+- bits = [3, 4]
+
+**Procedure**:
+```python
+from transformers import AutoModelForCausalLM
+from datasets import load_dataset
+
+model = AutoModelForCausalLM.from_pretrained("mistralai/Mistral-7B-v0.1")
+dataset = load_dataset("wikitext", "wikitext-2-raw-v1", split="test")
+
+fp16_ppl = calculate_ppl(model, dataset)  # Baseline
+
+for bits in [3, 4]:
+    # Replace KV cache with compressed version
+    model_quantized = apply_quantization(model, bits)
+    quant_ppl = calculate_ppl(model_quantized, dataset)
+    
+    delta = (quant_ppl - fp16_ppl) / fp16_ppl * 100
+    
+    assert delta < 50, f"PPL delta {delta}% too high"
+```
+
+**Expected Results**:
+
+| Model | FP16 | 4-bit Delta | 3-bit Delta |
+|-------|------|-------------|-------------|
+| Mistral-7B | 4.80 | +7.4% | +15.3% |
+| Gemma-2-2b | 8.87 | +10.1% | +19.9% |
+| Qwen2.5-3B | 9.81 | +3.2% | +25.2% |
+
+---
+
+### 2.6 T20: PPL at Scale (Long Context)
+
+**Purpose**: Verify quality degradation doesn't explode with context length
+
+**Config**:
+- Model: Qwen2.5-3B
+- Contexts: [1K, 2K, 4K]
+- bits = [3, 4]
+
+**Procedure**:
+```python
+for context in [1024, 2048, 4096]:
+    for bits in [3, 4]:
+        fp16_ppl = get_ppl_at_context(model, context)
+        quant_ppl = get_ppl_at_context(model_quantized, context, bits)
+        
+        delta = (quant_ppl - fp16_ppl) / fp16_ppl * 100
+        
+        # PPL should not explode exponentially
+        assert delta < 100, f"PPL delta {delta}% at {context} context"
+```
+
+**Expected Results**:
+
+| Context | FP16 | 4-bit | 3-bit |
+|---------|------|-------|-------|
+| 1K | 6.38 | 17.34 (+172%) | 411.34 (+6350%) |
+| 2K | 6.98 | 25.12 (+260%) | 963.41 (+13700%) |
+| 4K | 7.96 | 37.59 (+372%) | 5,128.36 (+63400%) |
+
+Note: 3-bit RefTQ collapses at 4K, but IsoQuant-MSE stays stable (~170 PPL)
+
+---
+
+### 2.7 T21-23: Cross-Engine Consistency
+
+**Purpose**: Verify all engines produce identical results
+
+**Config**:
+- d = 64, bits = 3
+- Seeds: 42
+- Backends: [python, numpy, cuda, triton]
+
+**Procedure**:
+```python
+engines = ["python", "numpy"]
+if cuda_available: engines.extend(["cuda", "triton"])
+
+mse_results = {}
+memory_results = {}
+
+for backend in engines:
+    quantizer = TurboQuantFactory.create_quantizer(
+        method="turboquant", backend=backend, d=d, bits=bits, seed=42
+    )
+    
+    x = torch.randn(100, d)
+    x_hat, _ = quantizer(x)
+    mse = ((x - x_hat) ** 2).mean().item()
+    mse_results[backend] = mse
+    
+    cache = TurboQuantFactory.create_kvcache(
+        method="turboquant", backend=backend,
+        d_key=d, d_value=d, key_bits=4, value_bits=2, seed=42
+    )
+    cache.append(torch.randn(10, d), torch.randn(10, d))
+    memory_results[backend] = cache.memory_usage_bits()["total_bits"]
+
+# Verify consistency
+baseline_mse = mse_results["python"]
+baseline_memory = memory_results["python"]
+
+for backend, mse in mse_results.items():
+    if backend != "python":
+        diff = abs(mse - baseline_mse) / baseline_mse
+        assert diff < 0.01, f"MSE diff {diff:.3f} exceeds 1%"
+
+for backend, memory in memory_results.items():
+    if backend != "python":
+        assert memory == baseline_memory, f"Memory mismatch: {memory} vs {baseline_memory}"
+```
+
+**Pass Criteria**:
+- MSE difference < 1% across all engines
+- Memory calculation exact match
+
+---
+
+## 3. Performance Benchmarks
+
+### 3.1 Latency Tests
+
+| Test | Config | Target | Acceptable |
+|------|--------|--------|------------|
+| T13 Quantize | d=128, n=8192, bits=3 | < 2 ms | < 4 ms |
+| T14 Attention | d=128, seq=4K, bits=3 | < 50 µs | < 100 µs |
+| T15 Triton vs PyTorch | d=128, n=8192 | > 10× | > 5× |
+| T16 GPU Speedup | d=128, n=8192 | > 50× | > 20× |
+
+### 3.2 Memory Tests
+
+| Test | Config | Target | Acceptable |
+|------|--------|--------|------------|
+| T5 Memory calc | seq=32K, d=128 | 234 MB (3-bit) | ±1% |
+| T6 Compression | 3-bit | 4.9x | ±5% |
+| T7 Bit packing | indices stored as uint8 | Verified | Exact |
+
+---
+
+## 4. QJL-Specific Tests (Research)
+
+### 4.1 QJL Variance Analysis
+
+**Purpose**: Investigate why QJL + softmax fails
+
+**Procedure**:
+```python
+# Compare variance of attention scores
+x = torch.randn(1000, d) / norm
+y = torch.randn(1000, d) / norm
+
+# MSE-only
+quant_mse = TurboQuantMSE(d, bits=3)
+x_hat_mse, _ = quant_mse(x)
+scores_mse = x_hat_mse @ y.T
+var_mse = scores_mse.var()
+
+# QJL
+quant_qjl = TurboQuantProd(d, bits=3)
+comp_qjl = quant_qjl.quantize(x)
+scores_qjl = quant_qjl.inner_product(y, comp_qjl).unsqueeze(-1) @ y.T
+var_qjl = scores_qjl.var()
+
+# Expected: var_qjl >> var_mse
+print(f"MSE variance: {var_mse:.6f}")
+print(f"QJL variance: {var_qjl:.6f}")
+print(f"Ratio: {var_qjl / var_mse:.2f}×")
+```
+
+**Hypothesis**: QJL variance should be 10-100× higher than MSE-only
+
+---
+
+### 4.2 QJL Implementation Verification
+
+**Purpose**: Verify QJL implementation matches paper
+
+**Checklist**:
+- [ ] S matrix is random orthogonal (or as specified)
+- [ ] qjl_signs are ±1 (not 0/1 or other values)
+- [ ] Residual norm computed correctly
+- [ ] Inner product formula: `<y, x_hat> + scale * <y_proj, signs>`
+- [ ] Scale factor = sqrt(π/2) / qjl_dim
+
+**Reference**: QJL paper (arXiv:2406.03482) Section 3
+
+---
+
+## 4.3 T13: QJL Removal Verification
+
+**Purpose**: Verify QJL fields are removed from MSE-only KV cache
+
+**Config**:
+- d_key = 128, d_value = 128
+- seq_len = 100
+- key_bits = 4, value_bits = 2
+- backend = "python"
+
+**Procedure**:
+```python
+cache = TurboQuantFactory.create_kvcache(
+    method="turboquant", backend="python",
+    d_key=128, d_value=128,
+    key_bits=4, value_bits=2, seed=42
+)
+
+keys = torch.randn(100, 128)
+values = torch.randn(100, 128)
+cache.append(keys, values)
+
+# Check cache structure
+cached = cache.key_cache[0]
+assert "qjl_signs" not in cached, "QJL qjl_signs should not be in cache"
+assert "residual_norm" not in cached, "QJL residual_norm should not be in cache"
+assert "mse_indices" not in cached, "QJL mse_indices should not be in cache"
+
+# Check quantizer type
+assert "TurboQuantMSE" in str(type(cache.key_quantizer)), \
+    "Key quantizer should be TurboQuantMSE, not TurboQuantProd"
+```
+
+**Pass Criteria**:
+- No QJL fields in cache structure
+- Key quantizer is TurboQuantMSE (not TurboQuantProd)
+
+---
+
+## 4.4 T14: Multi-Append Operations
+
+**Purpose**: Verify multiple append operations work correctly
+
+**Config**:
+- d_key = 128, d_value = 128
+- 5 batches of 50 tokens each
+- bits = 3
+
+**Procedure**:
+```python
+cache = TurboQuantFactory.create_kvcache(
+    method="turboquant", backend="python",
+    d_key=128, d_value=128, bits=3, seed=42
+)
+
+# Append multiple batches
+for i in range(5):
+    keys = torch.randn(50, 128)
+    values = torch.randn(50, 128)
+    cache.append(keys, values)
+
+# Verify total length
+assert len(cache) == 250, f"Expected 250, got {len(cache)}"
+
+# Test attention scores
+query = torch.randn(1, 128)
+scores = cache.attention_scores(query)
+assert scores.shape == (1, 250), f"Expected (1, 250), got {scores.shape}"
+```
+
+**Pass Criteria**:
+- Total cache length = 250
+- Attention scores shape = (1, 250)
+
+---
+
+## 4.5 T15: Asymmetric Bits Allocation
+
+**Purpose**: Verify exact bit allocation for keys vs values
+
+**Config**:
+- d_key = 128, d_value = 128
+- seq_len = 100
+- key_bits = 4, value_bits = 2
+
+**Procedure**:
+```python
+cache = TurboQuantFactory.create_kvcache(
+    method="turboquant", backend="python",
+    d_key=128, d_value=128,
+    bits=3, key_bits=4, value_bits=2, seed=42
+)
+
+keys = torch.randn(100, 128)
+values = torch.randn(100, 128)
+cache.append(keys, values)
+
+usage = cache.memory_usage_bits()
+
+# Verify exact bit calculation
+expected_key_indices = seq_len * d_key  # 100 * 128 = 12800
+expected_value_indices = seq_len * d_value  # 100 * 128 = 12800
+expected_bits = expected_key_indices * 4 + expected_value_indices * 2
+# = 12800 * 4 + 12800 * 2 = 51200 + 25600 = 76800
+
+assert usage["total_bits"] == expected_bits, \
+    f"Expected {expected_bits} bits, got {usage['total_bits']}"
+```
+
+**Pass Criteria**:
+- Total bits exactly matches formula: key_indices × key_bits + value_indices × value_bits
+- Compression ratio correct
+
+---
+
+## 4.6 T16: Factory Integration
+
+**Purpose**: Verify Factory pattern works correctly for all backends
+
+**Config**:
+- method = "turboquant"
+- backend = "python"
+- d_key = 128, d_value = 128
+
+**Procedure**:
+```python
+cache = TurboQuantFactory.create_kvcache(
+    method="turboquant", backend="python",
+    d_key=128, d_value=128,
+    key_bits=4, value_bits=2, seed=42
+)
+
+keys = torch.randn(100, 128)
+values = torch.randn(100, 128)
+cache.append(keys, values)
+
+query = torch.randn(1, 128)
+scores = cache.attention_scores(query)
+values_recon = cache.get_values()
+
+assert len(cache) == 100, f"Expected 100, got {len(cache)}"
+assert values_recon.shape == (100, 128), \
+    f"Expected (100, 128), got {values_recon.shape}"
+assert scores.shape == (1, 100), f"Expected (1, 100), got {scores.shape}"
+```
+
+**Pass Criteria**:
+- Cache length correct
+- Values reconstructed with correct shape
+- Attention scores with correct shape
+
+---
+
+## 5. Test Execution
+
+### 5.1 Run All Tests
+
+```bash
+# Unit tests
+python -m pytest tests/ -v
+
+# Benchmark tests
+python benchmarks/benchmark_mse_distortion.py
+python benchmarks/benchmark_inner_product.py
+python benchmarks/benchmark_attention_scores.py
+python benchmarks/benchmark_niah.py
+python benchmarks/benchmark_vram_usage.py
+python benchmarks/benchmark_speed.py
+
+# End-to-end validation
+python validations/validate.py
+```
+
+### 5.2 CI/CD Integration
+
+```yaml
+# .github/workflows/test.yml
+tests:
+  - name: Unit Tests
+    run: pytest tests/
+  
+  - name: MSE Distortion
+    run: python benchmarks/benchmark_mse_distortion.py
+  
+  - name: Cross-Engine Consistency
+    run: pytest tests/test_turboquant.py::test_engine_consistency
+  
+  - name: GQA Support
+    run: pytest tests/test_turboquant.py::test_gqa_runtime_support
+```
+
+---
+
+## 6. Success Criteria Summary
+
+### P0 (Must Pass)
+- [x] T1: MSE within 1.5× theory bound
+- [x] T5: Memory calculation exact
+- [x] T8: Attention cosine similarity > 0.99
+- [x] T11: Needle-in-haystack 100% pass
+- [x] T17: PPL < 2× FP16 for 4-bit
+- [x] T21-23: Cross-engine consistency < 1%
+
+### P1 (Should Pass)
+- [x] T13-16: Performance benchmarks
+- [x] T19: Long context (>90% pass)
+- [x] T20: PPL at scale (<50% delta)
+
+### Research (Investigate)
+- [ ] QJL variance amplification
+- [ ] QJL implementation correctness
+- [ ] Alternative QJL configurations
+
+---
+
+**Document Updated**: 2026-04-01  
+**Next Review**: 2026-04-15

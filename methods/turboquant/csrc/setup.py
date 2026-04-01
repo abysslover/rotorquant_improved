@@ -8,8 +8,10 @@ Usage:
 """
 
 from setuptools import setup, find_packages
+from setuptools.command.build_ext import build_ext
 import os
 import sys
+import shutil
 
 ext_modules = []
 cmdclass = {}
@@ -21,7 +23,7 @@ if "--cuda" in sys.argv:
 
 if build_cuda or "build_ext" in sys.argv:
     try:
-        from torch.utils.cpp_extension import BuildExtension, CUDAExtension
+        from torch.utils.cpp_extension import CUDAExtension, BuildExtension
 
         def nvcc_flags():
             nvcc_threads = os.getenv("NVCC_THREADS", "8")
@@ -35,6 +37,9 @@ if build_cuda or "build_ext" in sys.argv:
             ]
 
         csrc_dir = os.path.dirname(__file__)
+        # Path to cuda_kernels/ directory (parent directory)
+        cuda_kernels_dir = os.path.join(csrc_dir, "..", "cuda_kernels")
+        cuda_kernels_dir = os.path.abspath(cuda_kernels_dir)
 
         ext_modules = [
             CUDAExtension(
@@ -77,8 +82,85 @@ if build_cuda or "build_ext" in sys.argv:
                 },
             ),
         ]
-        cmdclass = {"build_ext": BuildExtension}
+
+        # Custom build_ext that copies so files to cuda_kernels/
+        class BuildExtWithCopy(BuildExtension):
+            def run(self):
+                # Call parent run but disable inplace copying
+                # This builds to build/ directory, then we copy manually
+                self.inplace = False
+                super().run()
+                # After build, copy so files to cuda_kernels/
+                self.copy_so_files_to_cuda_kernels(cuda_kernels_dir)
+
+            def copy_so_files_to_cuda_kernels(self, target_dir):
+                """Copy built .so files to cuda_kernels/ directory."""
+                if not os.path.exists(target_dir):
+                    print(f"Creating target directory: {target_dir}")
+                    os.makedirs(target_dir, exist_ok=True)
+
+                # Find the build lib directory (handle different Python versions)
+                # Use build_lib instead of build_base
+                build_dir = getattr(self, "build_lib", None)
+                if not build_dir:
+                    # Fallback: look for build directory relative to csrc
+                    csrc_dir = os.path.dirname(os.path.abspath(__file__))
+                    build_dir = os.path.join(csrc_dir, "build")
+
+                if not os.path.exists(build_dir):
+                    print(f"Build directory not found: {build_dir}")
+                    return
+
+                # Look for lib.linux-x86_64-*/turboquant subdirectory
+                for root, dirs, files in os.walk(build_dir):
+                    if "lib.linux-x86_64" in root and "turboquant" in root:
+                        for file in files:
+                            if file.endswith(".so"):
+                                src_path = os.path.join(root, file)
+                                dst_path = os.path.join(target_dir, file)
+                                print(f"Copying {file} to {target_dir}/")
+                                shutil.copy2(src_path, dst_path)
+                                print(f"  Copied: {file}")
+
+                # Also copy to turboquant/ subdirectory in csrc for import compatibility
+                csrc_target = os.path.join(
+                    os.path.dirname(cuda_kernels_dir), "turboquant"
+                )
+                if not os.path.exists(csrc_target):
+                    print(f"Creating {csrc_target} for import compatibility")
+                    os.makedirs(csrc_target, exist_ok=True)
+                for root, dirs, files in os.walk(build_dir):
+                    if "lib.linux-x86_64" in root and "turboquant" in root:
+                        for file in files:
+                            if file.endswith(".so"):
+                                src_path = os.path.join(root, file)
+                                dst_path = os.path.join(csrc_target, file)
+                                print(f"Also copying {file} to {csrc_target}/")
+                                shutil.copy2(src_path, dst_path)
+                                print(f"  Copied: {file}")
+
+                # Also copy to turboquant/ subdirectory in csrc for import compatibility
+                csrc_target = os.path.join(
+                    os.path.dirname(cuda_kernels_dir), "turboquant"
+                )
+                if not os.path.exists(csrc_target):
+                    print(f"Creating {csrc_target} for import compatibility")
+                    os.makedirs(csrc_target, exist_ok=True)
+                for root, dirs, files in os.walk(build_dir):
+                    if "lib.linux-x86_64" in root and "turboquant" in root:
+                        for file in files:
+                            if file.endswith(".so"):
+                                src_path = os.path.join(root, file)
+                                dst_path = os.path.join(csrc_target, file)
+                                print(f"Also copying {file} to {csrc_target}/")
+                                shutil.copy2(src_path, dst_path)
+                                print(f"  Copied: {file}")
+
+        from torch.utils.cpp_extension import BuildExtension
+
+        cmdclass = {"build_ext": BuildExtWithCopy}
         print("CUDA extensions will be built.")
+        print(f"So files will be copied to: {cuda_kernels_dir}")
     except ImportError:
         print("WARNING: torch not found, CUDA extensions will not be built.")
 

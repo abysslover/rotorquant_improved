@@ -1,0 +1,24 @@
+arXiv:2504.19874 [cs.LG]
+Title: TurboQuant: Online Vector Quantization with Near-optimal Distortion Rate
+Authors: Amir Zandieh, Majid Daliri, Majid Hadian, Vahab Mirrokni
+Affiliations: Google Research, New York University, Google DeepMind
+Submitted: 2025-04-28
+Pages: 25
+Subjects: Machine Learning (cs.LG); Artificial Intelligence (cs.AI); Databases (cs.DB); Data Structures and Algorithms (cs.DS)
+DOI: 10.48550/arXiv.2504.19874
+
+Abstract:
+Vector quantization, a problem rooted in Shannon's source coding theory, aims to quantize high-dimensional Euclidean vectors while minimizing distortion in their geometric structure. We propose TurboQuant to address both mean-squared error (MSE) and inner product distortion, overcoming limitations of existing methods that fail to achieve optimal distortion rates. Our data-oblivious algorithms, suitable for online applications, achieve near-optimal distortion rates (within a small constant factor) across all bit-widths and dimensions. TurboQuant achieves this by randomly rotating input vectors, inducing a concentrated Beta distribution on coordinates, and leveraging the near-independence property of distinct coordinates in high dimensions to simply apply optimal scalar quantizers per each coordinate. Recognizing that MSE-optimal quantizers introduce bias in inner product estimation, we propose a two-stage approach: applying an MSE quantizer followed by a 1-bit Quantized JL (QJL) transform on the residual, resulting in an unbiased inner product quantizer. We also provide a formal proof of the information-theoretic lower bounds on best achievable distortion rate by any vector quantizer, demonstrating that TurboQuant closely matches these bounds, differing only by a small constant (≈2.7) factor. Experimental results validate our theoretical findings, showing that for KV cache quantization, we achieve absolute quality neutrality with 3.5 bits per channel and marginal quality degradation with 2.5 bits per channel. Furthermore, in nearest neighbor search tasks, our method outperforms existing product quantization techniques in recall while reducing indexing time to virtually zero.
+
+Key Results:
+- MSE distortion within factor of ≈2.7 of information-theoretic lower bound
+- 3.5 bits per channel achieves absolute quality neutrality for KV cache
+- 2.5 bits per channel achieves marginal quality degradation
+- 5x+ compression ratio for KV cache
+- Near-zero indexing time for nearest neighbor search
+- Outperforms product quantization in recall
+
+Links:
+- PDF: https://arxiv.org/pdf/2504.19874
+- HTML: https://arxiv.org/html/2504.19874v1
+- Abstract: https://arxiv.org/abs/2504.19874

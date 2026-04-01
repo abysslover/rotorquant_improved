@@ -15,8 +15,8 @@ This document tracks which method+engine combinations are implemented for TurboQ
 |--------|---------|--------|-------------|
 | cpu | python | cpu | Pure Python/PyTorch on CPU (no GPU) |
 | torch_cpu | python | cpu | PyTorch operations on CPU |
-| cuda_kernel | cuda | cuda | Compiled CUDA .so kernels |
 | torch_cuda | python | cuda | PyTorch operations on CUDA |
+| cuda_kernel | cuda | cuda | Compiled CUDA .so kernels |
 | triton | triton | cuda | Triton GPU kernels |
 
 ---
@@ -76,29 +76,34 @@ This document tracks which method+engine combinations are implemented for TurboQ
 | Method | python (cpu) | cuda | triton |
 |--------|-------------|------|--------|
 | planarquant | ✅ | ✅ | ✅ |
-| isoquant | ✅ | ⚠️ | ✅ |
-| rotorquant | ✅ | ✅ | ⚠️ |
-| turboquant | ✅ | ✅ | ❌ |
+| isoquant | ✅ | ⚠️ REQUIRES DEV | ✅ |
+| rotorquant | ✅ | ✅ | ✅ (just added) |
+| turboquant | ✅ | ✅ | ❌ REQUIRES DEV |
 
 ---
 
-## Missing Implementations Status
+## Missing Implementations - Status Update
 
-### 1. isoquant + cuda_kernel
-- **Status**: Needs C++ wrapper development (NOT quick Python work)
+### isoquant + cuda_kernel
+- **Complexity**: HIGH - Requires C++/Python bridge development
 - **Kernel exists**: `methods/isoquant/cuda_kernels/isoclinic_fused.so`
 - **Issue**: No Python wrapper that loads and uses this .so
-- **Work required**: Create C++/Python bridge or use ctypes
+- **Approach**: Create isoquant_cuda.py with ctypes/importlib wrapper, OR use existing triton path
+- **Current workaround**: Use `engine="triton"` or `engine="torch_cuda"` instead
 
-### 2. rotorquant + triton  
-- **Status**: NEEDS PYTHON WRAPPER
-- **Kernels exist**: `methods/rotorquant/rotorquant_triton.py`
-- **Fix**: Add class wrappers (IsoQuantMSE-style) and register in factory
-- **Work required**: ~50 lines of Python wrapper code + registration
+### turboquant + triton
+- **Complexity**: HIGH - Requires full Triton kernel implementation
+- **Status**: No implementation exists
+- **Approach**: Implement dense d×d rotation in Triton (essentially a matmul + quantization)
+- **Current workaround**: Use `engine="cuda_kernel"` or `engine="torch_cuda"`
 
-### 3. turboquant + triton
-- **Status**: NOT IMPLEMENTED
-- **Work required**: Full implementation of dense rotation in Triton
+---
+
+## Current Workaround
+
+For missing combinations, use:
+- isoquant: Use `triton` or `torch_cuda` engine (fully functional)
+- turboquant: Use `cuda_kernel` or `torch_cuda` engine (fully functional)
 
 ---
 

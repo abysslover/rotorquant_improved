@@ -27,29 +27,68 @@ def is_cuda_available() -> bool:
 
 def ensure_cuda_kernels_built() -> bool:
     """
-    CUDA kernels가 없으면 자동으로 빌드를 시도합니다.
+    TurboQuant CUDA 커널 빌드 상태 확인 및 필요시 자동 빌드 시도.
+
+    먼저 빌드된 커널 파일이 cuda_kernels/에 있는지 확인하고,
+    있으면 바로 True 를 반환합니다. 빌드는 파일이 없는 경우에만 시도합니다.
+
+    Returns:
+        bool: True if CUDA kernels are available and working, False otherwise
     """
-    if is_cuda_available():
-        return True
+    if not torch.cuda.is_available():
+        return False
 
-    # Check if already built
-    try:
-        from .turboquant import cuda_backend
+    base_dir = Path(__file__).resolve().parent
+    cuda_kernels_dir = base_dir / "turboquant" / "cuda_kernels"
 
-        if (
-            hasattr(cuda_backend, "is_cuda_available")
-            and cuda_backend.is_cuda_available()
-        ):
-            return True
-    except ImportError:
-        pass
+    # Check for pre-built .so files FIRST - this is the primary check
+    if cuda_kernels_dir.exists():
+        import fnmatch
 
-    csrc_dir = Path(__file__).resolve().parent / "turboquant" / "csrc"
-    setup_py = (
-        Path(__file__).resolve().parent.parent / "turboquant" / "csrc" / "setup.py"
-    )
+        required_patterns = [
+            "cuda_qjl_quant.cpython-*.so",
+            "cuda_qjl_score.cpython-*.so",
+            "cuda_qjl_gqa_score.cpython-*.so",
+            "quantization.cpython-*.so",
+        ]
+        has_all_files = all(
+            any(fnmatch.filter(os.listdir(cuda_kernels_dir), pattern))
+            for pattern in required_patterns
+        )
 
-    # Check if setup.py exists
+        if has_all_files:
+            print(f"[INFO] Pre-built CUDA kernels found in {cuda_kernels_dir}")
+            # Clear module cache to force reimport with updated LD_LIBRARY_PATH
+            module_key = "methods.turboquant.turboquant_cuda_kernel"
+            if module_key in sys.modules:
+                del sys.modules[module_key]
+
+            # Try importing again
+            try:
+                from methods.turboquant.turboquant_cuda_kernel import is_cuda_available
+
+                if is_cuda_available():
+                    print("[INFO] CUDA kernels loaded successfully")
+                    return True
+                else:
+                    print(
+                        "[INFO] CUDA kernels exist but import failed - LD_LIBRARY_PATH issue"
+                    )
+                    print(
+                        "[INFO] Consider using shell wrapper script to set LD_LIBRARY_PATH before Python starts"
+                    )
+                    return False
+            except (ImportError, OSError) as e:
+                print(f"[INFO] CUDA kernels exist but load failed: {e}")
+                print(
+                    "[INFO] Consider using shell wrapper script to set LD_LIBRARY_PATH before Python starts"
+                )
+                return False
+
+    # Only attempt build if .so files don't exist
+    csrc_dir = base_dir / "turboquant" / "csrc"
+    setup_py = csrc_dir / "setup.py"
+
     if not setup_py.exists():
         print(f"[INFO] CUDA csrc not found at {csrc_dir}")
         return False
@@ -89,7 +128,9 @@ def ensure_cuda_kernels_built() -> bool:
         import importlib
 
         try:
-            importlib.reload(sys.modules.get("methods.turboquant.cuda_backend", None))
+            importlib.reload(
+                sys.modules.get("methods.turboquant.turboquant_cuda_kernel", None)
+            )
         except:
             pass
 
@@ -270,19 +311,23 @@ class TurboQuantFactory:
         d_key: int = 128,
         d_value: int = 128,
         bits: int = 3,
+        key_bits: Optional[int] = None,
+        value_bits: Optional[int] = None,
         seed: int = 42,
         device: str = "cpu",
         **kwargs,
     ) -> KVCacheBase:
         """
-        Create KV cache wrapper.
+        Create KV cache wrapper with asymmetric K/V bit allocation.
 
         Args:
             method: Quantization method
             backend: Computation backend
             d_key: Key dimension
             d_value: Value dimension
-            bits: Bits per component
+            bits: Default bits per component (used if key_bits/value_bits not specified)
+            key_bits: Key bit width (default: key_bits=4 recommended)
+            value_bits: Value bit width (default: value_bits=2 recommended)
             seed: Random seed
             device: Torch device
             **kwargs: Additional method-specific arguments
@@ -293,6 +338,16 @@ class TurboQuantFactory:
         Raises:
             ValueError: If method is unknown
             NotImplementedError: If backend not supported
+
+        Example:
+            # Recommended asymmetric configuration
+            cache = TurboQuantFactory.create_kvcache(
+                method="turboquant",
+                backend="cuda",
+                d_key=128, d_value=128,
+                key_bits=4, value_bits=2,  # Asymmetric: keys get more bits
+                device="cuda"
+            )
         """
         if method not in cls._registry:
             raise ValueError(f"Unknown method: {method}")
@@ -308,7 +363,14 @@ class TurboQuantFactory:
             raise NotImplementedError(f"KVCache not implemented for {method}+{backend}")
 
         return KVCacheClass(
-            d_key=d_key, d_value=d_value, bits=bits, seed=seed, device=device, **kwargs
+            d_key=d_key,
+            d_value=d_value,
+            bits=bits,
+            key_bits=key_bits,
+            value_bits=value_bits,
+            seed=seed,
+            device=device,
+            **kwargs,
         )
 
     @classmethod
@@ -345,18 +407,80 @@ def register_all_methods():
     from .rotorquant.rotorquant_triton import RotorQuantMSE as RQTritonMSE
     from .rotorquant.rotorquant_triton import RotorQuantProd as RQTritonProd
 
-    from .turboquant.turboquant_cpu import TurboQuantMSE as TQCPUMSE
-    from .turboquant.turboquant_cpu import TurboQuantProd as TQCPUProd
-    from .turboquant.turboquant import TurboQuantMSE as TQPyTorchMSE
-    from .turboquant.turboquant import TurboQuantProd as TQPyTorchProd
-    from .turboquant.turboquant import TurboQuantKVCache
+    from .turboquant.turboquant_torch import TurboQuantMSE as TQTorchMSE
+    from .turboquant.turboquant_torch import TurboQuantProd as TQTorchProd
+    from .turboquant.turboquant_torch import TurboQuantKVCache as TQKVCache
+
+    try:
+        from .turboquant.turboquant_cpu import TurboQuantMSE as TQNumpyMSE
+        from .turboquant.turboquant_cpu import TurboQuantProd as TQNumpyProd
+
+        numpy_available = True
+    except ImportError:
+        TQNumpyMSE, TQNumpyProd = None, None
+        numpy_available = False
+
+    # CUDA 커널 가용성 확인 및 자동 빌드
+    try:
+        if ensure_cuda_kernels_built():
+            from .turboquant.turboquant_cuda_kernel import TurboQuantMSE as TQCudaMSE
+            from .turboquant.turboquant_cuda_kernel import TurboQuantProd as TQCudaProd
+            from .turboquant.turboquant_cuda_kernel import TurboQuantKVCache as TQCudaKV
+
+            cuda_available = True
+        else:
+            raise ImportError("CUDA kernels not available")
+    except ImportError:
+        TQCudaMSE, TQCudaProd, TQCudaKV = None, None, None
+        cuda_available = False
+
+    try:
+        from .turboquant.turboquant_triton import TurboQuantMSE as TQTritonMSE
+        from .turboquant.turboquant_triton import TurboQuantProd as TQTritonProd
+
+        triton_available = True
+    except ImportError:
+        TQTritonMSE, TQTritonProd = None, None
+        triton_available = False
+
+    from .turboquant.turboquant_torch import TurboQuantKVCache as TQTorchKV
+    from .turboquant.turboquant_cpu import TurboQuantKVCache as TQNumpyKV
+    from .turboquant.turboquant_triton import TurboQuantKVCache as TQTritonKV
 
     TurboQuantFactory.register(
-        "planarquant", "python", quantizer_cls=PQCPUMSE, prod_cls=PQCPUProd
+        "turboquant",
+        "python",
+        quantizer_cls=TQTorchMSE,
+        prod_cls=TQTorchProd,
+        kvcache_cls=TQTorchKV,
     )
-    TurboQuantFactory.register(
-        "planarquant", "cuda", quantizer_cls=PQPyTorchMSE, prod_cls=PQPyTorchProd
-    )
+
+    if numpy_available:
+        TurboQuantFactory.register(
+            "turboquant",
+            "numpy",
+            quantizer_cls=TQNumpyMSE,
+            prod_cls=TQNumpyProd,
+            kvcache_cls=TQNumpyKV,
+        )
+
+    if cuda_available:
+        TurboQuantFactory.register(
+            "turboquant",
+            "cuda",
+            quantizer_cls=TQCudaMSE,
+            prod_cls=TQCudaProd,
+            kvcache_cls=TQCudaKV,
+        )
+
+    if triton_available:
+        TurboQuantFactory.register(
+            "turboquant",
+            "triton",
+            quantizer_cls=TQTritonMSE,
+            prod_cls=TQTritonProd,
+            kvcache_cls=TQTritonKV,
+        )
     TurboQuantFactory.register(
         "planarquant", "triton", quantizer_cls=PQTritonMSE, prod_cls=PQTritonProd
     )
@@ -382,16 +506,7 @@ def register_all_methods():
         "rotorquant", "triton", quantizer_cls=RQTritonMSE, prod_cls=RQTritonProd
     )
 
-    TurboQuantFactory.register(
-        "turboquant", "python", quantizer_cls=TQCPUMSE, prod_cls=TQCPUProd
-    )
-    TurboQuantFactory.register(
-        "turboquant",
-        "cuda",
-        quantizer_cls=TQPyTorchMSE,
-        prod_cls=TQPyTorchProd,
-        kvcache_cls=TurboQuantKVCache,
-    )
+    # turboquant: registered above
 
 
 class TurboQuantProdFactory:
@@ -417,24 +532,22 @@ class TurboQuantProdFactory:
     """
 
     _ENGINE_TO_BACKEND = {
-        "cpu": "python",
+        "cpu": "numpy",
         "torch_cpu": "python",
-        "cuda_kernel": "cuda",
         "torch_cuda": "python",
+        "cuda_kernel": "cuda",
         "triton": "triton",
     }
 
     _ENGINE_TO_DEVICE = {
         "cpu": "cpu",
         "torch_cpu": "cpu",
-        "cuda_kernel": "cuda",
         "torch_cuda": "cuda",
+        "cuda_kernel": "cuda",
         "triton": "cuda",
     }
 
-    _ENGINE_ALIASES = {
-        "pytorch": "torch_cuda",
-    }
+    _ENGINE_ALIASES = {}
 
     @classmethod
     def _resolve_engine(cls, engine: str) -> str:
@@ -517,6 +630,79 @@ class TurboQuantProdFactory:
             backend=backend,
             d=d,
             bits=bits,
+            seed=seed,
+            device=device,
+            **kwargs,
+        )
+
+    @classmethod
+    def create_kvcache(
+        cls,
+        method: str,
+        engine: str = "torch_cuda",
+        d_key: int = 128,
+        d_value: int = 128,
+        bits: int = 3,
+        key_bits: Optional[int] = None,
+        value_bits: Optional[int] = None,
+        seed: int = 42,
+        device: Optional[str] = None,
+        **kwargs,
+    ) -> KVCacheBase:
+        """Create KV cache using engine name (cpu, torch_cpu, cuda_kernel, torch_cuda, triton).
+
+        Args:
+            method: Quantization method ("turboquant", "isoquant", "rotorquant", "planarquant")
+            engine: Backend engine ("cpu", "torch_cpu", "cuda_kernel", "torch_cuda", "triton")
+            d_key: Key dimension
+            d_value: Value dimension
+            bits: Default bits per component (used if key_bits/value_bits not specified)
+            key_bits: Key bit width (default: key_bits=4 recommended)
+            value_bits: Value bit width (default: value_bits=2 recommended)
+            seed: Random seed
+            device: Device override (optional)
+            **kwargs: Additional arguments
+
+        Returns:
+            KVCacheBase instance
+
+        Example:
+            # Asymmetric K/V allocation (recommended)
+            cache = TurboQuantProdFactory.create_kvcache(
+                "turboquant",
+                engine="cuda_kernel",
+                d_key=128, d_value=128,
+                key_bits=4, value_bits=2,  # Keys get more bits
+                device="cuda"
+            )
+        """
+        engine = cls._resolve_engine(engine)
+        backend = cls._ENGINE_TO_BACKEND.get(engine)
+
+        if backend is None:
+            raise NotImplementedError(
+                f"Engine '{engine}' not supported. "
+                f"Available engines: {list(cls._ENGINE_TO_BACKEND.keys())}"
+            )
+
+        if device is None:
+            device = cls._ENGINE_TO_DEVICE.get(engine, "cpu")
+
+        if backend == "cuda":
+            if not ensure_cuda_kernels_built():
+                raise NotImplementedError(
+                    f"CUDA backend not available for {method}+{engine}. "
+                    "CUDA kernels failed to build."
+                )
+
+        return TurboQuantFactory.create_kvcache(
+            method=method,
+            backend=backend,
+            d_key=d_key,
+            d_value=d_value,
+            bits=bits,
+            key_bits=key_bits,
+            value_bits=value_bits,
             seed=seed,
             device=device,
             **kwargs,

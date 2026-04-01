@@ -1,0 +1,101 @@
+# TurboQuant Test Environment
+
+## Conda Environment
+
+**Environment Name**: `py310`  
+**Python Version**: `3.10.x`
+
+### Environment Creation
+
+```bash
+# Create environment(if not exists)
+conda create -n py310 python=3.10 -y
+conda activate py310
+
+# Install core dependencies
+pip install torch>=2.0.0 triton>=3.0 numpy scipy
+
+# Install validation dependencies (optional)
+pip install transformers datasets bitsandbytes
+
+# Install package in editable mode
+pip install -e .
+```
+
+### Environment Verification
+
+```bash
+# Verify Python version
+python --version  # Should be 3.10.x
+
+# Verify PyTorch
+python -c "import torch; print(f'PyTorch {torch.__version__}')"
+
+# Verify CUDA (if available)
+python -c "import torch; print(f'CUDA available: {torch.cuda.is_available()}')"
+```
+
+---
+
+## Test Execution
+
+### Unit Tests
+
+```bash
+# Run all unit tests
+cd /path/to/rotorquant_improved
+python tests/test_turboquant.py
+```
+
+### Benchmark Tests
+
+```bash
+# MSE Distortion
+python benchmarks/benchmark_mse_distortion.py
+
+# Inner Product
+python benchmarks/benchmark_inner_product.py
+
+# Attention Scores
+python benchmarks/benchmark_attention_scores.py
+
+# Needle-in-Haystack
+python benchmarks/benchmark_niah.py
+
+# VRAM Usage
+python benchmarks/benchmark_vram_usage.py
+
+# Speed/Performance
+python benchmarks/benchmark_speed.py
+
+# QJL Quantization
+python benchmarks/benchmark_qjl_quantization.py
+
+# End-to-End Pipeline
+python benchmarks/benchmark_e2e_pipeline.py
+```
+
+### Validation
+
+```bash
+# Model validation with real LLM
+python validations/validate.py
+```
+
+---
+
+## Expected Results
+
+See `specs/turboquant_tests_spec.txt` for detailed test specifications and expected results.
+
+---
+
+## Environment Notes
+
+- **Python 3.10 required**: Some dependencies (e.g., latest PyTorch, Triton) require Python 3.10+
+- **CUDA support**: For GPU benchmarks, ensure CUDA drivers are installed
+- **Disk space**: Ensure at least 10GB free space for model downloads and benchmarks
+
+---
+
+**Last Updated**: 2026-04-01
