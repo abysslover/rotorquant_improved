@@ -25,49 +25,70 @@ from .common_utils import generate_qjl_matrix_torch as generate_qjl_matrix
 # CRITICAL: Preload CUDA libraries using ctypes before torch import
 # This is necessary because LD_LIBRARY_PATH changes don't affect already-loaded libraries
 def _preload_cuda_libraries():
-    """Manually preload CUDA libraries using ctypes before torch import."""
-    # Discover PyTorch lib directory - CUDA libs are in torch/lib, not torch/lib/cuda/lib
-    torch_lib_candidates = []
+    """Manually preload CUDA libraries using ctypes before torch import.
 
+    Returns:
+        str: Successfully loaded PyTorch lib path, or None if all failed
+    """
+    # Explicit priority order: py310 environment first, then auto-discover
+    explicit_py310_path = (
+        "/data/anaconda3/envs/py310/lib/python3.10/site-packages/torch/lib"
+    )
+
+    # Discover additional PyTorch lib directories from site-packages
+    auto_discovered_paths = []
     for site_dir in site.getsitepackages():
         torch_lib = os.path.join(site_dir, "torch", "lib")
         if os.path.isdir(torch_lib):
-            torch_lib_candidates.append(torch_lib)
+            auto_discovered_paths.append(torch_lib)
 
-    torch_lib_candidates.extend(
-        [
-            "/data/anaconda3/lib/python3.10/site-packages/torch/lib",
-            "/data/anaconda3/envs/py310/lib/python3.10/site-packages/torch/lib",
-            "/data/anaconda3/lib/python3.9/site-packages/torch/lib",
-        ]
+    # Combine: explicit py310 first, then auto-discovered paths
+    torch_lib_candidates = (
+        [explicit_py310_path] if os.path.isdir(explicit_py310_path) else []
     )
+    torch_lib_candidates.extend(auto_discovered_paths)
 
+    # Try each candidate in order until one succeeds
+    success_path = None
     for torch_lib in torch_lib_candidates:
-        if os.path.isdir(torch_lib):
-            # Preload key CUDA libraries directly from torch/lib
-            # libc10.so is required by all other CUDA libs
-            libc10_path = os.path.join(torch_lib, "libc10.so")
-            if os.path.exists(libc10_path):
-                try:
-                    ctypes.CDLL(libc10_path, mode=ctypes.RTLD_GLOBAL)
-                except OSError:
-                    pass
+        # CRITICAL: Set LD_LIBRARY_PATH FIRST before loading any libraries
+        # This ensures the dynamic linker can find libc10.so when loading CUDA kernels
+        ld_library_path = os.environ.get("LD_LIBRARY_PATH", "")
+        if torch_lib not in ld_library_path:
+            os.environ["LD_LIBRARY_PATH"] = torch_lib + (
+                ":" + ld_library_path if ld_library_path else ""
+            )
+            print(f"[INFO] Set LD_LIBRARY_PATH to include: {torch_lib}")
 
-            # Preload libtorch_python.so
-            libtorch_python_path = os.path.join(torch_lib, "libtorch_python.so")
-            if os.path.exists(libtorch_python_path):
-                try:
-                    ctypes.CDLL(libtorch_python_path, mode=ctypes.RTLD_GLOBAL)
-                except OSError:
-                    pass
+        # Preload key CUDA libraries directly from torch/lib
+        # libc10.so is required by all other CUDA libs
+        libc10_path = os.path.join(torch_lib, "libc10.so")
+        libtorch_python_path = os.path.join(torch_lib, "libtorch_python.so")
 
-            # Set LD_LIBRARY_PATH for any remaining libraries
-            ld_library_path = os.environ.get("LD_LIBRARY_PATH", "")
-            if torch_lib not in ld_library_path:
-                os.environ["LD_LIBRARY_PATH"] = torch_lib + (
-                    ":" + ld_library_path if ld_library_path else ""
-                )
-            break
+        # Try loading libc10.so
+        if os.path.exists(libc10_path):
+            try:
+                ctypes.CDLL(libc10_path, mode=ctypes.RTLD_GLOBAL)
+                print(f"[INFO] Loaded libc10.so from {torch_lib}")
+            except OSError as e:
+                print(f"[WARN] Failed to load libc10.so from {torch_lib}: {e}")
+                continue
+
+        # Try loading libtorch_python.so
+        if os.path.exists(libtorch_python_path):
+            try:
+                ctypes.CDLL(libtorch_python_path, mode=ctypes.RTLD_GLOBAL)
+                print(f"[INFO] Loaded libtorch_python.so from {torch_lib}")
+            except OSError as e:
+                print(f"[WARN] Failed to load libtorch_python.so from {torch_lib}: {e}")
+                continue
+
+        # Success! Record the path
+        success_path = torch_lib
+        print(f"[INFO] Successfully preloaded CUDA libraries from: {torch_lib}")
+        break  # Only need one successful path
+
+    return success_path
 
 
 # Preload CUDA libraries before torch import
@@ -78,75 +99,89 @@ import torch
 import torch.nn as nn
 import ctypes
 import ctypes.util
-import importlib.util
+
+# CRITICAL: Re-set LD_LIBRARY_PATH after torch import
+# torch import may reset LD_LIBRARY_PATH, so we must set it again
+_torch_lib_path = os.path.join(os.path.dirname(torch.__file__), "lib")
+ld_library_path = os.environ.get("LD_LIBRARY_PATH", "")
+if _torch_lib_path not in ld_library_path:
+    os.environ["LD_LIBRARY_PATH"] = _torch_lib_path + (
+        ":" + ld_library_path if ld_library_path else ""
+    )
 
 # Try importing pre-built CUDA kernels
 _CUDA_AVAILABLE = False
 _CUDA_LOAD_ERROR = None
+_cuda_qjl_quant = None
+_cuda_qjl_score = None
+_cuda_qjl_gqa_score = None
+_quantization = None
 
 try:
     # 1 차 시도: 표준 패키지 경로에서 직접 임포트 (setup.py 설치 환경)
-    import turboquant.cuda_qjl_quant as cuda_qjl_quant
-    import turboquant.cuda_qjl_score as cuda_qjl_score
-    import turboquant.cuda_qjl_gqa_score as cuda_qjl_gqa_score
-    import turboquant.quantization as quantization
+    import turboquant.cuda_qjl_quant as _cuda_qjl_quant
+    import turboquant.cuda_qjl_score as _cuda_qjl_score
+    import turboquant.cuda_qjl_gqa_score as _cuda_qjl_gqa_score
+    import turboquant.quantization as _quantization
+
     _CUDA_AVAILABLE = True
 except ImportError:
     try:
-        # 2 차 시도: 개발 환경을 위한 수동 .so 파일 로드
+        # 2 차 시도: 개발 환경 - sys.path 를 사용한 직접 import (Pybind11 호환)
         _kernel_dir = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "cuda_kernels"
+            os.path.dirname(os.path.abspath(__file__)), "cuda_kernels"
         )
 
-        # Try multiple possible Python version formats
-        possible_versions = [
-            f"cpython-{sys.version_info.major}{sys.version_info.minor}",
-            f"cpython-{sys.version_info.major}{sys.version_info.minor - 1}",
-            "cpython-310",
-            "cpython-39",
-        ]
-
-        modules_to_load = {}
-        for mod_name in [
+        # 필요한 모듈 목록
+        required_modules = [
             "cuda_qjl_quant",
             "cuda_qjl_score",
             "cuda_qjl_gqa_score",
             "quantization",
-        ]:
-            # Try each version format until we find the so file
-            so_path = None
-            for py_version in possible_versions:
-                candidate = os.path.join(
-                    _kernel_dir, f"{mod_name}.{py_version}-x86_64-linux-gnu.so"
-                )
-                if os.path.exists(candidate):
-                    so_path = candidate
-                    break
+        ]
 
-            if so_path and os.path.exists(so_path):
-                try:
-                    spec = importlib.util.spec_from_file_location(mod_name, so_path)
-                    if spec and spec.loader:
-                        mod = importlib.util.module_from_spec(spec)
-                        # Register in sys.modules to ensure proper loading
-                        sys.modules[mod_name] = mod
-                        spec.loader.exec_module(mod)
-                        modules_to_load[mod_name] = mod
-                    else:
-                        _CUDA_LOAD_ERROR = f"Could not create spec for {mod_name}"
-                except OSError as e:
-                    _CUDA_LOAD_ERROR = f"OSError loading {mod_name}: {e}"
-            else:
-                _CUDA_LOAD_ERROR = f"So file not found for {mod_name}"
-
-        # Set globals only if all modules loaded successfully
-        if len(modules_to_load) == 4:
-            for mod_name, mod in modules_to_load.items():
-                globals()[mod_name] = mod
-            _CUDA_AVAILABLE = True
+        # .so 파일 존재 확인
+        if not os.path.exists(_kernel_dir):
+            _CUDA_LOAD_ERROR = f"Kernel directory not found: {_kernel_dir}"
         else:
-            _CUDA_AVAILABLE = False
-            _CUDA_LOAD_ERROR = f"Only {len(modules_to_load)}/4 CUDA modules loaded"
+            available_files = os.listdir(_kernel_dir)
+            found_modules = []
+            for mod_name in required_modules:
+                # py310 환경에 맞는 .so 파일 찾기
+                so_file = f"{mod_name}.cpython-310-x86_64-linux-gnu.so"
+                if so_file in available_files:
+                    found_modules.append(mod_name)
+                else:
+                    # 다른 버전 시도
+                    found = False
+                    for f in available_files:
+                        if f.startswith(mod_name) and f.endswith(".so"):
+                            found_modules.append(mod_name)
+                            found = True
+                            break
+                    if not found:
+                        _CUDA_LOAD_ERROR = f"So file not found for {mod_name}"
+
+            if not found_modules:
+                _CUDA_LOAD_ERROR = "No CUDA .so files found in kernel directory"
+            else:
+                # sys.path 를 추가하여 직접 import
+                original_sys_path = sys.path.copy()
+                sys.path.insert(0, _kernel_dir)
+
+                try:
+                    _cuda_qjl_quant = __import__("cuda_qjl_quant")
+                    _cuda_qjl_score = __import__("cuda_qjl_score")
+                    _cuda_qjl_gqa_score = __import__("cuda_qjl_gqa_score")
+                    _quantization = __import__("quantization")
+
+                    _CUDA_AVAILABLE = True
+                    _CUDA_LOAD_ERROR = None
+                except ImportError as e:
+                    _CUDA_AVAILABLE = False
+                    _CUDA_LOAD_ERROR = f"Failed to import CUDA modules: {e}"
+                finally:
+                    sys.path = original_sys_path
     except Exception as inner_e:
         _CUDA_AVAILABLE = False
         _CUDA_LOAD_ERROR = str(inner_e)
@@ -154,6 +189,16 @@ except ImportError:
 except Exception as e:
     _CUDA_AVAILABLE = False
     _CUDA_LOAD_ERROR = str(e)
+
+# 글로벌 변수 설정
+if _cuda_qjl_quant is not None:
+    cuda_qjl_quant = _cuda_qjl_quant
+if _cuda_qjl_score is not None:
+    cuda_qjl_score = _cuda_qjl_score
+if _cuda_qjl_gqa_score is not None:
+    cuda_qjl_gqa_score = _cuda_qjl_gqa_score
+if _quantization is not None:
+    quantization = _quantization
 
 
 def is_cuda_available():

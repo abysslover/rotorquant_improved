@@ -1,26 +1,26 @@
 metric_name	cpu	torch_cpu	torch_cuda	cuda_kernel	triton	description
-attention_latency_ms	3.682055	1.475954	0.070677	NA	0.061948	Attention score latency (lower = faster)
-compression_ratio_2	8.000000	8.000000	8.000000	NA	8.000000	KV cache compression ratio at 2-bit (higher = better)
-compression_ratio_3	5.333333	5.333333	5.333333	NA	5.333333	KV cache compression ratio at 3-bit (higher = better)
-compression_ratio_4	4.000000	4.000000	4.000000	NA	4.000000	KV cache compression ratio at 4-bit (higher = better)
+attention_latency_ms	3.920017	1.634990	0.062464	0.075108	0.063826	Attention score latency (lower = faster)
+compression_ratio_2	8.000000	8.000000	8.000000	8.000000	8.000000	KV cache compression ratio at 2-bit (higher = better)
+compression_ratio_3	5.333333	5.333333	5.333333	5.333333	5.333333	KV cache compression ratio at 3-bit (higher = better)
+compression_ratio_4	4.000000	4.000000	4.000000	4.000000	4.000000	KV cache compression ratio at 4-bit (higher = better)
 compression_ratio_asymmetric	5.333333	NA	NA	NA	NA	Asymmetric K/V compression ratio K4/V2
-correlation_2	0.796686	0.799783	0.800293	NA	0.803367	Inner product correlation at 2-bit (target: > 0.75)
-correlation_3	0.922060	0.915921	0.918138	NA	0.919322	Inner product correlation at 3-bit (target: > 0.8)
-correlation_4	0.975797	0.975287	0.974425	NA	0.975147	Inner product correlation at 4-bit (target: > 0.8)
-cross_engine_mse	0.032104	0.033165	0.033165	NA	NA	Cross-engine MSE consistency (cpu, torch_cpu, torch_cuda, cuda_kernel)
+correlation_2	0.797859	0.792749	0.811205	0.805748	0.808348	Inner product correlation at 2-bit (target: > 0.75)
+correlation_3	0.919127	0.928615	0.919701	0.924376	0.918620	Inner product correlation at 3-bit (target: > 0.8)
+correlation_4	0.975592	0.973954	0.976748	0.973827	0.977712	Inner product correlation at 4-bit (target: > 0.8)
+cross_engine_mse	0.034592	0.033638	0.033638	0.033638	NA	Cross-engine MSE consistency (cpu, torch_cpu, torch_cuda, cuda_kernel)
 distortion	0.005678	NA	NA	NA	NA	Lloyd-Max codebook distortion (lower = better)
-fp16_latency_ms	3.685734	1.479126	0.070852	NA	0.062121	FP16 baseline latency for comparison
+fp16_latency_ms	3.923710	1.638376	0.062637	0.075297	0.064003	FP16 baseline latency for comparison
 gqa_ratio	4	NA	NA	NA	NA	GQA compression ratio (keys vs values)
-indexing_time_ms	246.564799	NA	NA	NA	NA	No description available
-low_bit_cosine	0.974567	NA	NA	NA	NA	Cosine similarity at 2.5 bits (target: > 0.95)
+indexing_time_ms	269.455561	NA	NA	NA	NA	No description available
+low_bit_cosine	0.974617	NA	NA	NA	NA	Cosine similarity at 2.5 bits (target: > 0.95)
 memory_ratio	2.666667	NA	NA	NA	NA	No description available
-mse_ratio_1	0.527484	0.532060	0.531263	NA	0.529307	MSE ratio at 1-bit quantization (target: < 1.5)
-mse_ratio_2	0.683361	0.685575	0.686762	NA	0.681765	MSE ratio at 2-bit quantization (target: < 1.5)
-mse_ratio_3	0.808469	0.797967	0.798934	NA	0.804545	MSE ratio at 3-bit quantization (target: < 1.5)
-mse_ratio_4	0.870754	0.872862	0.871334	NA	0.874752	MSE ratio at 4-bit quantization (target: < 1.5)
+mse_ratio_1	0.529300	0.529142	0.533666	0.528649	0.531302	MSE ratio at 1-bit quantization (target: < 1.5)
+mse_ratio_2	0.681735	0.682931	0.679063	0.683319	0.684234	MSE ratio at 2-bit quantization (target: < 1.5)
+mse_ratio_3	0.803846	0.796653	0.806665	0.808218	0.800305	MSE ratio at 3-bit quantization (target: < 1.5)
+mse_ratio_4	0.878343	0.884069	0.886806	0.875707	0.880713	MSE ratio at 4-bit quantization (target: < 1.5)
 niah_accuracy	1.000000	NA	NA	NA	NA	Needle-in-haystack retrieval accuracy (target: 1.0)
-overhead_vs_fp16	0.999002	0.997856	0.997525	NA	0.997219	Performance overhead vs FP16 baseline
+overhead_vs_fp16	0.999059	0.997934	0.997230	0.997496	0.997232	Performance overhead vs FP16 baseline
 qjl_removed	True	NA	NA	NA	NA	QJL field removed (True = correct)
-quality_neutrality_cosine	0.998769	NA	NA	NA	NA	Cosine similarity at 3.5 bits (target: > 0.99)
-quantization_latency_ms	93.804157	13.806988	0.122718	NA	0.120052	Quantization latency (lower = faster)
-recall_at_10	0.072600	NA	NA	NA	NA	Recall@10 for PQ comparison (higher = better)
+quality_neutrality_cosine	0.998715	NA	NA	NA	NA	Cosine similarity at 3.5 bits (target: > 0.99)
+quantization_latency_ms	91.278132	14.713121	0.077820	0.125821	0.122518	Quantization latency (lower = faster)
+recall_at_10	0.078800	NA	NA	NA	NA	Recall@10 for PQ comparison (higher = better)

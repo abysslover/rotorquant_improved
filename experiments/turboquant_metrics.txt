@@ -1,16 +1,16 @@
 # TurboQuant Experimental Results
 
-**Date**: 2026-04-02 00:32:06
-**Environment**: Python 3.9.12, PyTorch 2.8.0+cu128
+**Date**: 2026-04-02 00:58:16
+**Environment**: Python 3.10.11, PyTorch 2.8.0+cu129
 
 ## Environment Information
 
 | Property | Value |
 |----------|-------|
-| python_version | 3.9.12 |
-| pytorch_version | 2.8.0+cu128 |
+| python_version | 3.10.11 |
+| pytorch_version | 2.8.0+cu129 |
 | cuda_available | True |
-| cuda_version | 12.8 |
+| cuda_version | 12.9 |
 | cudnn_version | 91002 |
 | cuda_device_count | 1 |
 | cuda_device_name | NVIDIA RTX A6000 |
@@ -42,7 +42,7 @@
 | T13 | Needle-in-a-Haystack | PASS | Needle-in-a-haystack retrieval successful |
 | T14 | PQ Comparison | PASS | PQ comparison TurboQuant competitive |
 | T15 | Indexing Time | WARN | Indexing time not negligible |
-| CUDA | CUDA Compilation | WARN | CUDA extension: not available |
+| CUDA | CUDA Compilation | PASS | CUDA extension: available |
 
 ## Detailed Results
 
@@ -100,30 +100,30 @@
 **Details**:
 
 - `cpu`:
-  - 1: {'mse': 0.3587813675403595, 'theory_bound': 0.6801747615878316, 'ratio': 0.527484093503857, 'status': 'OK'}
-  - 2: {'mse': 0.11620130389928818, 'theory_bound': 0.1700436903969579, 'ratio': 0.6833614562705763, 'status': 'OK'}
-  - 3: {'mse': 0.03436876833438873, 'theory_bound': 0.04251092259923948, 'ratio': 0.8084691235330562, 'status': 'OK'}
-  - 4: {'mse': 0.009254137054085732, 'theory_bound': 0.01062773064980987, 'ratio': 0.8707538193256045, 'status': 'OK'}
+  - 1: {'mse': 0.3600162863731384, 'theory_bound': 0.6801747615878316, 'ratio': 0.529299683999888, 'status': 'OK'}
+  - 2: {'mse': 0.11592480540275574, 'theory_bound': 0.1700436903969579, 'ratio': 0.6817354124233336, 'status': 'OK'}
+  - 3: {'mse': 0.03417222201824188, 'theory_bound': 0.04251092259923948, 'ratio': 0.8038456925621563, 'status': 'OK'}
+  - 4: {'mse': 0.00933479517698288, 'theory_bound': 0.01062773064980987, 'ratio': 0.8783432215747657, 'status': 'OK'}
 - `torch_cpu`:
-  - 1: {'mse': 0.3618937134742737, 'theory_bound': 0.6801747615878316, 'ratio': 0.5320598968262982, 'status': 'OK'}
-  - 2: {'mse': 0.11657776683568954, 'theory_bound': 0.1700436903969579, 'ratio': 0.6855753751494394, 'status': 'OK'}
-  - 3: {'mse': 0.033922307193279266, 'theory_bound': 0.04251092259923948, 'ratio': 0.7979668546145865, 'status': 'OK'}
-  - 4: {'mse': 0.00927654653787613, 'theory_bound': 0.01062773064980987, 'ratio': 0.8728624053002404, 'status': 'OK'}
+  - 1: {'mse': 0.35990917682647705, 'theory_bound': 0.6801747615878316, 'ratio': 0.5291422104317548, 'status': 'OK'}
+  - 2: {'mse': 0.11612815409898758, 'theory_bound': 0.1700436903969579, 'ratio': 0.6829312738855091, 'status': 'OK'}
+  - 3: {'mse': 0.03386646881699562, 'theory_bound': 0.04251092259923948, 'ratio': 0.7966533480409925, 'status': 'OK'}
+  - 4: {'mse': 0.009395645931363106, 'theory_bound': 0.01062773064980987, 'ratio': 0.8840688798912301, 'status': 'OK'}
 - `cuda_kernel`:
-  - 1: {'mse': None, 'theory_bound': None, 'ratio': None, 'status': 'SKIP: CUDA backend not available for turboquant+cuda_kernel. CUDA kernels failed to build.'}
-  - 2: {'mse': None, 'theory_bound': None, 'ratio': None, 'status': 'SKIP: CUDA backend not available for turboquant+cuda_kernel. CUDA kernels failed to build.'}
-  - 3: {'mse': None, 'theory_bound': None, 'ratio': None, 'status': 'SKIP: CUDA backend not available for turboquant+cuda_kernel. CUDA kernels failed to build.'}
-  - 4: {'mse': None, 'theory_bound': None, 'ratio': None, 'status': 'SKIP: CUDA backend not available for turboquant+cuda_kernel. CUDA kernels failed to build.'}
+  - 1: {'mse': 0.3595738112926483, 'theory_bound': 0.6801747615878316, 'ratio': 0.5286491525402126, 'status': 'OK'}
+  - 2: {'mse': 0.11619412899017334, 'theory_bound': 0.1700436903969579, 'ratio': 0.683319261766928, 'status': 'OK'}
+  - 3: {'mse': 0.03435811027884483, 'theory_bound': 0.04251092259923948, 'ratio': 0.8082184101894675, 'status': 'OK'}
+  - 4: {'mse': 0.009306776337325573, 'theory_bound': 0.01062773064980987, 'ratio': 0.8757068318712116, 'status': 'OK'}
 - `torch_cuda`:
-  - 1: {'mse': 0.36135146021842957, 'theory_bound': 0.6801747615878316, 'ratio': 0.5312626704567425, 'status': 'OK'}
-  - 2: {'mse': 0.11677949875593185, 'theory_bound': 0.1700436903969579, 'ratio': 0.6867617286081968, 'status': 'OK'}
-  - 3: {'mse': 0.03396342694759369, 'theory_bound': 0.04251092259923948, 'ratio': 0.7989341296535705, 'status': 'OK'}
-  - 4: {'mse': 0.009260300546884537, 'theory_bound': 0.01062773064980987, 'ratio': 0.8713337637184289, 'status': 'OK'}
+  - 1: {'mse': 0.3629859983921051, 'theory_bound': 0.6801747615878316, 'ratio': 0.5336657854589218, 'status': 'OK'}
+  - 2: {'mse': 0.11547030508518219, 'theory_bound': 0.1700436903969579, 'ratio': 0.679062568070729, 'status': 'OK'}
+  - 3: {'mse': 0.0342920757830143, 'theory_bound': 0.04251092259923948, 'ratio': 0.8066650565619055, 'status': 'OK'}
+  - 4: {'mse': 0.00942473765462637, 'theory_bound': 0.01062773064980987, 'ratio': 0.8868062209306159, 'status': 'OK'}
 - `triton`:
-  - 1: {'mse': 0.36002129316329956, 'theory_bound': 0.6801747615878316, 'ratio': 0.5293070450347924, 'status': 'OK'}
-  - 2: {'mse': 0.11592978239059448, 'theory_bound': 0.1700436903969579, 'ratio': 0.6817646813002153, 'status': 'OK'}
-  - 3: {'mse': 0.034201934933662415, 'theory_bound': 0.04251092259923948, 'ratio': 0.8045446403526018, 'status': 'OK'}
-  - 4: {'mse': 0.009296629577875137, 'theory_bound': 0.01062773064980987, 'ratio': 0.8747520881178387, 'status': 'OK'}
+  - 1: {'mse': 0.361378014087677, 'theory_bound': 0.6801747615878316, 'ratio': 0.5313017102311461, 'status': 'OK'}
+  - 2: {'mse': 0.11634964495897293, 'theory_bound': 0.1700436903969579, 'ratio': 0.6842338265381144, 'status': 'OK'}
+  - 3: {'mse': 0.034021683037281036, 'theory_bound': 0.04251092259923948, 'ratio': 0.8003045089849375, 'status': 'OK'}
+  - 4: {'mse': 0.009359984658658504, 'theory_bound': 0.01062773064980987, 'ratio': 0.8807133871826113, 'status': 'OK'}
 
 ### T3: Inner Product (QJL)
 
@@ -134,25 +134,25 @@
 **Details**:
 
 - `cpu`:
-  - 2: {'bias': -0.0014355366583913565, 'rmse': 0.06769122502092863, 'correlation': 0.7966858148574829}
-  - 3: {'bias': 0.0004934021853841841, 'rmse': 0.03683066168004829, 'correlation': 0.9220600724220276}
-  - 4: {'bias': -8.023633563425392e-05, 'rmse': 0.019893933346250198, 'correlation': 0.9757969975471497}
+  - 2: {'bias': -0.00205509876832366, 'rmse': 0.0675480447646257, 'correlation': 0.7978588342666626}
+  - 3: {'bias': 0.0014340324560180306, 'rmse': 0.03749500231421611, 'correlation': 0.9191267490386963}
+  - 4: {'bias': -0.0002714507281780243, 'rmse': 0.020133679450344024, 'correlation': 0.9755915999412537}
 - `torch_cpu`:
-  - 2: {'bias': 0.0011573315132409334, 'rmse': 0.06736290454864502, 'correlation': 0.7997830510139465}
-  - 3: {'bias': 0.0001585400168551132, 'rmse': 0.037208180874586105, 'correlation': 0.9159213304519653}
-  - 4: {'bias': 0.00016773059905972332, 'rmse': 0.020148662850260735, 'correlation': 0.9752873778343201}
+  - 2: {'bias': 0.00036567801726050675, 'rmse': 0.06565979868173599, 'correlation': 0.7927489876747131}
+  - 3: {'bias': 0.0004063134838361293, 'rmse': 0.036047376692295074, 'correlation': 0.928615391254425}
+  - 4: {'bias': 0.00024134984414558858, 'rmse': 0.019689124077558517, 'correlation': 0.9739539623260498}
 - `cuda_kernel`:
-  - 2: {'bias': None, 'rmse': None, 'correlation': None, 'status': 'SKIP: CUDA backend not available for turboquant+cuda_kernel. CUDA kernels failed to build.'}
-  - 3: {'bias': None, 'rmse': None, 'correlation': None, 'status': 'SKIP: CUDA backend not available for turboquant+cuda_kernel. CUDA kernels failed to build.'}
-  - 4: {'bias': None, 'rmse': None, 'correlation': None, 'status': 'SKIP: CUDA backend not available for turboquant+cuda_kernel. CUDA kernels failed to build.'}
+  - 2: {'bias': -0.0006663250969722867, 'rmse': 0.06603771448135376, 'correlation': 0.8057480454444885}
+  - 3: {'bias': 0.0021201572380959988, 'rmse': 0.03746803104877472, 'correlation': 0.9243757724761963}
+  - 4: {'bias': 0.00018777842342387885, 'rmse': 0.019939541816711426, 'correlation': 0.973827064037323}
 - `torch_cuda`:
-  - 2: {'bias': -0.0002819901274051517, 'rmse': 0.06356479972600937, 'correlation': 0.8002933263778687}
-  - 3: {'bias': 0.0007347921491600573, 'rmse': 0.037351422011852264, 'correlation': 0.9181382656097412}
-  - 4: {'bias': 0.00019579724175855517, 'rmse': 0.020302196964621544, 'correlation': 0.9744247198104858}
+  - 2: {'bias': 0.0024373012129217386, 'rmse': 0.06399764120578766, 'correlation': 0.8112049698829651}
+  - 3: {'bias': 0.0009358187671750784, 'rmse': 0.03718133270740509, 'correlation': 0.9197012186050415}
+  - 4: {'bias': 0.0002460192481521517, 'rmse': 0.02007433958351612, 'correlation': 0.9767482876777649}
 - `triton`:
-  - 2: {'bias': 0.0011483416892588139, 'rmse': 0.06501032412052155, 'correlation': 0.8033666014671326}
-  - 3: {'bias': 0.0010870079277083278, 'rmse': 0.03745748847723007, 'correlation': 0.9193221926689148}
-  - 4: {'bias': 0.0005949022597633302, 'rmse': 0.02034594863653183, 'correlation': 0.9751471281051636}
+  - 2: {'bias': -0.0013819104060530663, 'rmse': 0.06462284922599792, 'correlation': 0.8083484172821045}
+  - 3: {'bias': 0.0003734363417606801, 'rmse': 0.03773649409413338, 'correlation': 0.9186202883720398}
+  - 4: {'bias': 0.0009457843261770904, 'rmse': 0.019417082890868187, 'correlation': 0.9777119755744934}
 
 ### T4: KV Cache Compression
 
@@ -171,9 +171,9 @@
   - 3: {'compression_ratio': 5.333333333333333, 'compressed_kb': 96.0, 'fp16_kb': 512.0, 'expected_ratio': 5.333333333333333}
   - 4: {'compression_ratio': 4.0, 'compressed_kb': 128.0, 'fp16_kb': 512.0, 'expected_ratio': 4.0}
 - `cuda_kernel`:
-  - 2: {'compression_ratio': None, 'compressed_kb': None, 'fp16_kb': None, 'expected_ratio': None, 'status': 'SKIP: CUDA backend not available for turboquant+cuda_kernel. CUDA kernels failed to build.'}
-  - 3: {'compression_ratio': None, 'compressed_kb': None, 'fp16_kb': None, 'expected_ratio': None, 'status': 'SKIP: CUDA backend not available for turboquant+cuda_kernel. CUDA kernels failed to build.'}
-  - 4: {'compression_ratio': None, 'compressed_kb': None, 'fp16_kb': None, 'expected_ratio': None, 'status': 'SKIP: CUDA backend not available for turboquant+cuda_kernel. CUDA kernels failed to build.'}
+  - 2: {'compression_ratio': 8.0, 'compressed_kb': 64.0, 'fp16_kb': 512.0, 'expected_ratio': 8.0}
+  - 3: {'compression_ratio': 5.333333333333333, 'compressed_kb': 96.0, 'fp16_kb': 512.0, 'expected_ratio': 5.333333333333333}
+  - 4: {'compression_ratio': 4.0, 'compressed_kb': 128.0, 'fp16_kb': 512.0, 'expected_ratio': 4.0}
 - `torch_cuda`:
   - 2: {'compression_ratio': 8.0, 'compressed_kb': 64.0, 'fp16_kb': 512.0, 'expected_ratio': 8.0}
   - 3: {'compression_ratio': 5.333333333333333, 'compressed_kb': 96.0, 'fp16_kb': 512.0, 'expected_ratio': 5.333333333333333}
@@ -219,13 +219,15 @@
 **Details**:
 
 - `mse_results`:
-  - cpu: 0.03210365027189255
-  - torch_cpu: 0.03316508233547211
-  - torch_cuda: 0.03316508233547211
+  - cpu: 0.03459233418107033
+  - torch_cpu: 0.03363768756389618
+  - torch_cuda: 0.03363768756389618
+  - cuda_kernel: 0.03363768756389618
 - `memory_results`:
   - cpu: 3840
   - torch_cpu: 3840
   - torch_cuda: 3840
+  - cuda_kernel: 3840
 - `mse_issues`: []
 - `memory_issues`: []
 
@@ -251,27 +253,30 @@
 **Details**:
 
 - `cpu`:
-  - quantization_latency_ms: 93.8041565939784
-  - attention_latency_ms: 3.6820552591234446
-  - fp16_latency_ms: 3.685734309256077
-  - overhead_vs_fp16: 0.9990018135264409
+  - quantization_latency_ms: 91.27813160885125
+  - attention_latency_ms: 3.9200166705995794
+  - fp16_latency_ms: 3.923709790688008
+  - overhead_vs_fp16: 0.9990587682867899
 - `torch_cpu`:
-  - quantization_latency_ms: 13.806987879797816
-  - attention_latency_ms: 1.4759541605599225
-  - fp16_latency_ms: 1.4791256515309215
-  - overhead_vs_fp16: 0.9978558339734582
+  - quantization_latency_ms: 14.71312060020864
+  - attention_latency_ms: 1.6349903983063996
+  - fp16_latency_ms: 1.6383755393326283
+  - overhead_vs_fp16: 0.997933843038448
 - `cuda_kernel`:
-  - error: CUDA backend not available for turboquant+cuda_kernel. CUDA kernels failed to build.
+  - quantization_latency_ms: 0.1258207019418478
+  - attention_latency_ms: 0.0751080084592104
+  - fp16_latency_ms: 0.07529655937105417
+  - overhead_vs_fp16: 0.9974958894082449
 - `torch_cuda`:
-  - quantization_latency_ms: 0.12271781452000141
-  - attention_latency_ms: 0.0706766196526587
-  - fp16_latency_ms: 0.07085195044055581
-  - overhead_vs_fp16: 0.9975253922184653
+  - quantization_latency_ms: 0.07781980093568563
+  - attention_latency_ms: 0.062463611830025904
+  - fp16_latency_ms: 0.06263714050874114
+  - overhead_vs_fp16: 0.9972296200416266
 - `triton`:
-  - quantization_latency_ms: 0.12005178723484278
-  - attention_latency_ms: 0.061948429793119424
-  - fp16_latency_ms: 0.06212115986272692
-  - overhead_vs_fp16: 0.9972194648330909
+  - quantization_latency_ms: 0.12251848820596933
+  - attention_latency_ms: 0.06382566876709461
+  - fp16_latency_ms: 0.06400279933586717
+  - overhead_vs_fp16: 0.9972324559142636
 
 ### T10: Memory at Scale
 
@@ -311,9 +316,9 @@
 **Details**:
 
 - `effective_bits`: 3.5
-- `mse`: 0.00014481985999736935
-- `cosine_similarity`: 0.9987691044807434
-- `correlation`: 0.9914922118186951
+- `mse`: 0.00014545365411322564
+- `cosine_similarity`: 0.9987145066261292
+- `correlation`: 0.9914499521255493
 - `n_vectors`: 10000
 
 ### T12: Low-Bit Degradation (2.5 bits)
@@ -325,9 +330,9 @@
 **Details**:
 
 - `effective_bits`: 2.5
-- `mse`: 0.0005221393657848239
-- `cosine_similarity`: 0.9745673537254333
-- `correlation`: 0.9690462350845337
+- `mse`: 0.0005214676493778825
+- `cosine_similarity`: 0.9746168851852417
+- `correlation`: 0.9690949320793152
 - `n_vectors`: 10000
 
 ### T13: Needle-in-a-Haystack
@@ -341,20 +346,20 @@
 - `8192`:
   - needle_pos: 4096
   - retrieved: True
-  - needle_score: 1.6752140522003174
-  - max_score: 1.6752140522003174
+  - needle_score: 1.740653157234192
+  - max_score: 1.740653157234192
   - retrieved_idx: 4096
 - `16384`:
   - needle_pos: 8192
   - retrieved: True
-  - needle_score: 1.7189607620239258
-  - max_score: 1.7189607620239258
+  - needle_score: 1.7291903495788574
+  - max_score: 1.7291903495788574
   - retrieved_idx: 8192
 - `32768`:
   - needle_pos: 16384
   - retrieved: True
-  - needle_score: 1.6732511520385742
-  - max_score: 1.6732511520385742
+  - needle_score: 1.7198214530944824
+  - max_score: 1.7198214530944824
   - retrieved_idx: 16384
 
 ### T14: PQ Comparison
@@ -366,7 +371,7 @@
 **Details**:
 
 - `turboquant_recall_at_10`: 1.0
-- `pq_recall_at_10`: 0.0726
+- `pq_recall_at_10`: 0.0788
 - `n_vectors`: 5000
 - `n_queries`: 500
 - `bits`: 3
@@ -379,43 +384,39 @@
 
 **Details**:
 
-- `turboquant_index_time_ms`: 17.343796091154218
-- `pq_index_time_ms`: 246.5647989884019
-- `speedup_factor`: 14.216310990542393
+- `turboquant_index_time_ms`: 17.816318897530437
+- `pq_index_time_ms`: 269.4555609486997
+- `speedup_factor`: 15.124087220174848
 - `n_vectors`: 10000
 - `bits`: 3
 
 ### CUDA: CUDA Compilation
 
-**Status**: WARN
+**Status**: PASS
 
-**Message**: CUDA extension: not available
+**Message**: CUDA extension: available
 
 **Details**:
 
 - `cuda_available`: True
-- `cuda_version`: 12.8
+- `cuda_version`: 12.9
 - `cuda_device`: NVIDIA RTX A6000
-- `extension_available`: False
+- `extension_available`: True
 - `issues`: []
 
 ## Issues Identified
 
 - Indexing Time: Indexing time not negligible
-- CUDA kernel compilation failed - GPU acceleration unavailable
-- CUDA Compilation: CUDA extension: not available
 
 ## Recommendations
 
-- Fix linker compatibility issues or use CPU/PyTorch backends
 - Indexing time not negligible: optimize quantization pipeline
-- Upgrade to Python 3.10+ for production (some dependencies require it)
 
 ## Summary
 
 - **Total Tests**: 16
-- **Passed**: 14
-- **Warnings**: 2
+- **Passed**: 15
+- **Warnings**: 1
 - **Failed**: 0
 - **Skipped**: 0
 
