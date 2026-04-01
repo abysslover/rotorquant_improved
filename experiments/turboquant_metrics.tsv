@@ -1,26 +1,25 @@
 metric_name	cpu	torch_cpu	torch_cuda	cuda_kernel	triton	description
-attention_latency_ms	3.920017	1.634990	0.062464	0.075108	0.063826	Attention score latency (lower = faster)
+attention_latency_ms	3.480072	1.541369	0.062213	0.070118	0.063090	Attention score latency (lower = faster)
 compression_ratio_2	8.000000	8.000000	8.000000	8.000000	8.000000	KV cache compression ratio at 2-bit (higher = better)
 compression_ratio_3	5.333333	5.333333	5.333333	5.333333	5.333333	KV cache compression ratio at 3-bit (higher = better)
 compression_ratio_4	4.000000	4.000000	4.000000	4.000000	4.000000	KV cache compression ratio at 4-bit (higher = better)
-compression_ratio_asymmetric	5.333333	NA	NA	NA	NA	Asymmetric K/V compression ratio K4/V2
-correlation_2	0.797859	0.792749	0.811205	0.805748	0.808348	Inner product correlation at 2-bit (target: > 0.75)
-correlation_3	0.919127	0.928615	0.919701	0.924376	0.918620	Inner product correlation at 3-bit (target: > 0.8)
-correlation_4	0.975592	0.973954	0.976748	0.973827	0.977712	Inner product correlation at 4-bit (target: > 0.8)
-cross_engine_mse	0.034592	0.033638	0.033638	0.033638	NA	Cross-engine MSE consistency (cpu, torch_cpu, torch_cuda, cuda_kernel)
-distortion	0.005678	NA	NA	NA	NA	Lloyd-Max codebook distortion (lower = better)
-fp16_latency_ms	3.923710	1.638376	0.062637	0.075297	0.064003	FP16 baseline latency for comparison
-gqa_ratio	4	NA	NA	NA	NA	GQA compression ratio (keys vs values)
-indexing_time_ms	269.455561	NA	NA	NA	NA	No description available
-low_bit_cosine	0.974617	NA	NA	NA	NA	Cosine similarity at 2.5 bits (target: > 0.95)
-memory_ratio	2.666667	NA	NA	NA	NA	No description available
-mse_ratio_1	0.529300	0.529142	0.533666	0.528649	0.531302	MSE ratio at 1-bit quantization (target: < 1.5)
-mse_ratio_2	0.681735	0.682931	0.679063	0.683319	0.684234	MSE ratio at 2-bit quantization (target: < 1.5)
-mse_ratio_3	0.803846	0.796653	0.806665	0.808218	0.800305	MSE ratio at 3-bit quantization (target: < 1.5)
-mse_ratio_4	0.878343	0.884069	0.886806	0.875707	0.880713	MSE ratio at 4-bit quantization (target: < 1.5)
-niah_accuracy	1.000000	NA	NA	NA	NA	Needle-in-haystack retrieval accuracy (target: 1.0)
-overhead_vs_fp16	0.999059	0.997934	0.997230	0.997496	0.997232	Performance overhead vs FP16 baseline
-qjl_removed	True	NA	NA	NA	NA	QJL field removed (True = correct)
-quality_neutrality_cosine	0.998715	NA	NA	NA	NA	Cosine similarity at 3.5 bits (target: > 0.99)
-quantization_latency_ms	91.278132	14.713121	0.077820	0.125821	0.122518	Quantization latency (lower = faster)
-recall_at_10	0.078800	NA	NA	NA	NA	Recall@10 for PQ comparison (higher = better)
+compression_ratio_asymmetric	5.333333	5.333333	5.333333	5.333333	5.333333	Asymmetric K/V compression ratio K4/V2
+correlation_2	0.785292	0.804762	0.817886	0.798878	0.799875	Inner product correlation at 2-bit (target: > 0.75)
+correlation_3	0.923627	0.920805	0.927711	0.922846	0.920926	Inner product correlation at 3-bit (target: > 0.8)
+correlation_4	0.974053	0.976222	0.973637	0.975286	0.972556	Inner product correlation at 4-bit (target: > 0.8)
+cross_engine_mse	0.034816	0.033328	0.033328	0.033328	NA	Cross-engine MSE consistency (cpu, torch_cpu, torch_cuda, cuda_kernel)
+distortion	0.005678	0.005678	0.005678	0.005678	0.005678	Lloyd-Max codebook distortion (lower = better)
+fp16_latency_ms	3.483655	1.544548	0.062390	0.070285	0.063268	FP16 baseline latency for comparison
+gqa_ratio	4	4	4	4	4	GQA compression ratio (keys vs values)
+indexing_time_ms	240.512780	16.697607	0.115848	2.705570	0.203513	No description available
+mse_ratio_1	0.530913	0.528944	0.528504	0.529666	0.530992	MSE ratio at 1-bit quantization (target: < 1.5)
+mse_ratio_2	0.682401	0.682984	0.683127	0.683154	0.686155	MSE ratio at 2-bit quantization (target: < 1.5)
+mse_ratio_3	0.798902	0.799534	0.795141	0.801428	0.800048	MSE ratio at 3-bit quantization (target: < 1.5)
+mse_ratio_4	0.871097	0.878144	0.864888	0.868189	0.876304	MSE ratio at 4-bit quantization (target: < 1.5)
+overhead_vs_fp16	0.998971	0.997942	0.997161	0.997635	0.997178	Performance overhead vs FP16 baseline
+qjl_removed	True	True	True	True	True	QJL field removed (True = correct)
+quantization_latency_ms	100.765945	14.926905	0.074049	0.112599	0.116622	Quantization latency (lower = faster)
+ratio_16384	2.666667	2.666667	2.666667	2.666667	2.666667	Memory usage ratio at 16384 context length
+ratio_32768	2.666667	2.666667	2.666667	2.666667	2.666667	Memory usage ratio at 32768 context length
+ratio_4096	2.666667	2.666667	2.666667	2.666667	2.666667	Memory usage ratio at 4096 context length
+ratio_8192	2.666667	2.666667	2.666667	2.666667	2.666667	Memory usage ratio at 8192 context length

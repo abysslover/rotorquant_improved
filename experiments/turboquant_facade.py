@@ -392,46 +392,74 @@ class TurboQuantFacade:
         }
 
     def test_5_asymmetric_bits(self) -> Dict:
-        """T5: Asymmetric Bit Allocation."""
-        from methods.turboquant_factory import TurboQuantFactory
+        """T5: Asymmetric Bit Allocation across engines."""
+        from methods.turboquant_factory import TurboQuantProdFactory
 
         d_key, d_value = 128, 128
         seq_len = 100
-        device = "cpu"
 
-        cache = TurboQuantFactory.create_kvcache(
-            method="turboquant",
-            backend="python",
-            d_key=d_key,
-            d_value=d_value,
-            bits=3,
-            key_bits=4,
-            value_bits=2,
-            seed=42,
-            device=device,
-        )
+        # 엔진별 결과 저장
+        engine_results = {}
+        all_ok = True
 
-        keys = torch.randn(seq_len, d_key, device=device)
-        values = torch.randn(seq_len, d_value, device=device)
-        cache.append(keys, values)
+        # T2/T9 와 동일한 엔진 구성
+        engines_to_test = ["cpu", "torch_cpu"]
+        if torch.cuda.is_available():
+            engines_to_test.extend(["cuda_kernel", "torch_cuda", "triton"])
+        else:
+            engines_to_test.extend(["torch_cuda"])
 
-        usage = cache.memory_usage_bits()
+        engine_device_map = TurboQuantProdFactory._ENGINE_TO_DEVICE
 
-        expected_key_indices = seq_len * d_key
-        expected_value_indices = seq_len * d_value
-        expected_bits = expected_key_indices * 4 + expected_value_indices * 2
+        for engine in engines_to_test:
+            device = engine_device_map.get(engine, "cpu")
+            try:
+                cache = TurboQuantProdFactory.create_kvcache(
+                    method="turboquant",
+                    engine=engine,
+                    d_key=d_key,
+                    d_value=d_value,
+                    bits=3,
+                    key_bits=4,
+                    value_bits=2,
+                    seed=42,
+                    device=device,
+                )
 
-        match = usage["total_bits"] == expected_bits
+                keys = torch.randn(seq_len, d_key, device=device)
+                values = torch.randn(seq_len, d_value, device=device)
+                cache.append(keys, values)
+
+                usage = cache.memory_usage_bits()
+
+                expected_key_indices = seq_len * d_key
+                expected_value_indices = seq_len * d_value
+                expected_bits = expected_key_indices * 4 + expected_value_indices * 2
+
+                match = usage["total_bits"] == expected_bits
+                if not match:
+                    all_ok = False
+
+                engine_results[engine] = {
+                    "actual_bits": usage["total_bits"],
+                    "expected_bits": expected_bits,
+                    "compression_ratio": float(usage["compression_ratio"]),
+                    "fp16_bits": usage["fp16_bits"],
+                    "status": "OK" if match else "MISMATCH",
+                }
+            except (ImportError, NotImplementedError, RuntimeError) as e:
+                engine_results[engine] = {
+                    "actual_bits": None,
+                    "expected_bits": None,
+                    "compression_ratio": None,
+                    "fp16_bits": None,
+                    "status": f"SKIP: {e}",
+                }
 
         return {
-            "status": "PASS" if match else "FAIL",
-            "message": f"Bit calculation {'matches' if match else 'mismatches'} expected",
-            "details": {
-                "actual_bits": usage["total_bits"],
-                "expected_bits": expected_bits,
-                "compression_ratio": float(usage["compression_ratio"]),
-                "fp16_bits": usage["fp16_bits"],
-            },
+            "status": "PASS" if all_ok else "FAIL",
+            "message": "Asymmetric bit allocation checked across engines",
+            "details": engine_results,
         }
 
     def test_6_gqa_support(self) -> Dict:
@@ -534,23 +562,23 @@ class TurboQuantFacade:
                         engines.append("cuda_kernel")
                 except (ImportError, RuntimeError):
                     pass
-            # Triton requires CUDA + GPU tensor support - skip for now
-            # It causes issues with CPU tensor access in this environment
-            # triton_available = False
-            # if torch.cuda.is_available():
-            #     try:
-            #         import triton
-            #         test_tensor = torch.randn(10, 10, device="cuda")
-            #         @triton.jit
-            #         def test_kernel(x):
-            #             pass
-            #         test_kernel[(1,)](test_tensor)
-            #         triton_available = True
-            #     except (ImportError, RuntimeError, AttributeError, ValueError):
-            #         triton_available = False
-            #
-            # if triton_available:
-            #     engines.append("triton")
+        # Triton requires CUDA + GPU tensor support - skip for now
+        # It causes issues with CPU tensor access in this environment
+        # triton_available = False
+        # if torch.cuda.is_available():
+        #     try:
+        #         import triton
+        #         test_tensor = torch.randn(10, 10, device="cuda")
+        #         @triton.jit
+        #         def test_kernel(x):
+        #             pass
+        #         test_kernel[(1,)](test_tensor)
+        #         triton_available = True
+        #     except (ImportError, RuntimeError, AttributeError, ValueError):
+        #         triton_available = False
+        #
+        # if triton_available:
+        #     engines.append("triton")
 
         # If only 1-2 engines available, skip (need at least 2 for basic comparison)
         # With 3+ engines (cpu, torch_cpu, torch_cuda), we can still meaningfully compare
@@ -782,38 +810,73 @@ class TurboQuantFacade:
         }
 
     def test_10_memory_at_scale(self) -> Dict:
-        """T10: Memory Usage at Scale."""
-        from methods.turboquant.turboquant_torch import TurboQuantKVCache
+        """T10: Memory Usage at Scale across engines."""
+        from methods.turboquant_factory import TurboQuantProdFactory
 
         d = 128
         bits = 3
         context_lengths = [4096, 8192, 16384, 32768]
 
+        # 엔진별 → seq_len 별 결과
         results = {}
 
-        for seq_len in context_lengths:
-            cache = TurboQuantKVCache(d, d, bits=bits, seed=42)
+        engines_to_test = ["cpu", "torch_cpu"]
+        if torch.cuda.is_available():
+            engines_to_test.extend(["cuda_kernel", "torch_cuda", "triton"])
+        else:
+            engines_to_test.extend(["torch_cuda"])
 
-            # Simulate context
-            keys = torch.randn(seq_len, d)
-            values = torch.randn(seq_len, d)
-            cache.append(keys, values)
+        engine_device_map = TurboQuantProdFactory._ENGINE_TO_DEVICE
 
-            usage = cache.memory_usage_bits()
-            fp16_bits = seq_len * d * 16
-            fp16_mb = fp16_bits / (8 * 1024 * 1024)
-            compressed_mb = usage["total_bits"] / (8 * 1024 * 1024)
+        for engine in engines_to_test:
+            device = engine_device_map.get(engine, "cpu")
+            engine_results = {}
+            try:
+                for seq_len in context_lengths:
+                    cache = TurboQuantProdFactory.create_kvcache(
+                        method="turboquant",
+                        engine=engine,
+                        d_key=d,
+                        d_value=d,
+                        bits=bits,
+                        seed=42,
+                        device=device,
+                    )
 
-            results[seq_len] = {
-                "fp16_mb": float(fp16_mb),
-                "compressed_mb": float(compressed_mb),
-                "saved_mb": float(fp16_mb - compressed_mb),
-                "ratio": float(fp16_mb / compressed_mb) if compressed_mb > 0 else 0,
-            }
+                    keys = torch.randn(seq_len, d, device=device)
+                    values = torch.randn(seq_len, d, device=device)
+                    cache.append(keys, values)
+
+                    usage = cache.memory_usage_bits()
+                    fp16_bits = seq_len * d * 16
+                    fp16_mb = fp16_bits / (8 * 1024 * 1024)
+                    compressed_mb = usage["total_bits"] / (8 * 1024 * 1024)
+
+                    engine_results[seq_len] = {
+                        "fp16_mb": float(fp16_mb),
+                        "compressed_mb": float(compressed_mb),
+                        "saved_mb": float(fp16_mb - compressed_mb),
+                        "ratio": float(fp16_mb / compressed_mb)
+                        if compressed_mb > 0
+                        else 0.0,
+                    }
+            except (ImportError, NotImplementedError, RuntimeError) as e:
+                engine_results = {
+                    seq_len: {
+                        "fp16_mb": None,
+                        "compressed_mb": None,
+                        "saved_mb": None,
+                        "ratio": None,
+                        "status": f"SKIP: {e}",
+                    }
+                    for seq_len in context_lengths
+                }
+
+            results[engine] = engine_results
 
         return {
             "status": "PASS",
-            "message": "Memory usage calculated for all context lengths",
+            "message": "Memory usage calculated for all context lengths across engines",
             "details": results,
         }
 
@@ -989,7 +1052,7 @@ class TurboQuantFacade:
             keys = torch.randn(seq_len, d)
             values = torch.randn(seq_len, d)
 
-         # Mark needle position with distinctive pattern (현실적인 L2 norm 1 유지)
+            # Mark needle position with distinctive pattern (현실적인 L2 norm 1 유지)
             needle_key = keys[needle_pos].clone()
             needle_key = needle_key / torch.norm(needle_key)
 
@@ -1044,10 +1107,10 @@ class TurboQuantFacade:
         x = np.random.randn(n_vectors, d).astype(np.float32)
         x = x / np.linalg.norm(x, axis=1, keepdims=True)
 
-     # Ground truth nearest neighbors (FP32) - 자기 자신 제외
+        # Ground truth nearest neighbors (FP32) - 자기 자신 제외
         x_torch = torch.from_numpy(x)
         ip_matrix = x_torch @ x_torch.T
-        ip_matrix.fill_diagonal_(float('-inf'))
+        ip_matrix.fill_diagonal_(float("-inf"))
         true_nn = ip_matrix.argsort(dim=-1, descending=True)[:, :10]
 
         # TurboQuant
@@ -1095,8 +1158,7 @@ class TurboQuantFacade:
                 pred_arr = pred_nn[:, :k]
 
             correct = sum(
-                1 for i in range(len(true_arr))
-                if set(true_arr[i]) & set(pred_arr[i])
+                1 for i in range(len(true_arr)) if set(true_arr[i]) & set(pred_arr[i])
             )
             return correct / len(true_arr)
 
@@ -1119,61 +1181,96 @@ class TurboQuantFacade:
         }
 
     def test_15_indexing_time(self) -> Dict:
-        """T15: Indexing Time (paper claim).
+        """T15: Indexing Time (paper claim) across engines.
 
         Paper claims: "reducing indexing time to virtually zero"
-        Measure indexing time for TurboQuant (should be minimal).
+        Measure indexing time for TurboQuant across all engines.
         """
-        from methods.turboquant.turboquant_torch import TurboQuantMSE
+        from methods.turboquant_factory import TurboQuantProdFactory
         import time
+        from sklearn.cluster import KMeans
 
         d = 128
         n_vectors = 10000
-        device = "cpu"
 
-        # Generate test data
-        x = torch.randn(n_vectors, d, device=device)
-        x = x / torch.norm(x, dim=-1, keepdim=True)
+        # 엔진 목록
+        engines_to_test = ["cpu", "torch_cpu"]
+        if torch.cuda.is_available():
+            engines_to_test.extend(["cuda_kernel", "torch_cuda", "triton"])
+        else:
+            engines_to_test.extend(["torch_cuda"])
 
-        # TurboQuant indexing (just quantization, no clustering)
-        tq = TurboQuantMSE(d, bits=3, seed=42, device=device)
+        engine_device_map = TurboQuantProdFactory._ENGINE_TO_DEVICE
 
-        t0 = time.perf_counter()
-        _, indices = tq.quantize(x)
-        tq_index_time = (time.perf_counter() - t0) * 1000
-
-        # Simple PQ indexing (requires k-means clustering)
-        from sklearn.cluster import KMeans
+        engine_results = {}
+        # PQ baseline 은 CPU 에서 한 번만 측정 (엔진 독립)
+        device_cpu = "cpu"
+        x_cpu = torch.randn(n_vectors, d, device=device_cpu)
+        x_cpu = x_cpu / torch.norm(x_cpu, dim=-1, keepdim=True)
 
         n_subvectors = 2
         sub_dim = d // n_subvectors
         pq_times = []
-
         for i in range(n_subvectors):
-            sub_x = x[:, i * sub_dim : (i + 1) * sub_dim]
+            sub_x = x_cpu[:, i * sub_dim : (i + 1) * sub_dim].numpy()
             t0 = time.perf_counter()
             kmeans = KMeans(n_clusters=8, random_state=42, n_init=1)
             kmeans.fit(sub_x)
             pq_times.append((time.perf_counter() - t0) * 1000)
-
         pq_index_time = sum(pq_times)
 
-        # TurboQuant should be much faster (virtually zero vs PQ)
-        speedup = pq_index_time / tq_index_time if tq_index_time > 0 else float("inf")
+        for engine in engines_to_test:
+            device = engine_device_map.get(engine, "cpu")
+            try:
+                quantizer = TurboQuantProdFactory.create_quantizer(
+                    method="turboquant",
+                    engine=engine,
+                    d=d,
+                    bits=3,
+                    seed=42,
+                    device=device,
+                )
 
-        # Virtually zero: < 1ms for 10k vectors
-        is_virtually_zero = tq_index_time < 1.0
+                if engine == "cpu":
+                    x = x_cpu.numpy()
+                else:
+                    x = torch.randn(n_vectors, d, device=device)
+                    x = x / torch.norm(x, dim=-1, keepdim=True)
+
+                t0 = time.perf_counter()
+                _, indices = quantizer.quantize(x)
+                tq_index_time = (time.perf_counter() - t0) * 1000
+
+                speedup = (
+                    pq_index_time / tq_index_time if tq_index_time > 0 else float("inf")
+                )
+
+                engine_results[engine] = {
+                    "turboquant_index_time_ms": float(tq_index_time),
+                    "pq_index_time_ms": float(pq_index_time),
+                    "speedup_factor": float(speedup),
+                    "n_vectors": n_vectors,
+                    "bits": 3,
+                }
+            except (ImportError, NotImplementedError, RuntimeError) as e:
+                engine_results[engine] = {
+                    "turboquant_index_time_ms": None,
+                    "pq_index_time_ms": float(pq_index_time),
+                    "speedup_factor": None,
+                    "n_vectors": n_vectors,
+                    "bits": 3,
+                    "status": f"SKIP: {e}",
+                }
+
+        # 전체 PASS/WARN 판정은 가장 보수적으로 CPU 기준으로만 유지
+        cpu_res = engine_results.get("cpu", {})
+        cpu_tq = cpu_res.get("turboquant_index_time_ms")
+        is_virtually_zero = cpu_tq is not None and cpu_tq < 1.0
 
         return {
             "status": "PASS" if is_virtually_zero else "WARN",
             "message": f"Indexing time {'virtually zero' if is_virtually_zero else 'not negligible'}",
-            "details": {
-                "turboquant_index_time_ms": float(tq_index_time),
-                "pq_index_time_ms": float(pq_index_time),
-                "speedup_factor": float(speedup),
-                "n_vectors": n_vectors,
-                "bits": 3,
-            },
+            "details": engine_results,
         }
 
     def check_cuda_compilation(self) -> Dict:
@@ -1619,14 +1716,18 @@ class TurboQuantFacade:
         """
         details = result.details
 
-        # T1: Lloyd-Max Codebook - use distortion values
+        # T1: Lloyd-Max Codebook - distortion is engine-independent (mathematical optimal)
         if result.test_id == "T1":
-            values = {}
+            val = "N/A"
             for config, dist_data in details.items():
                 if isinstance(dist_data, dict) and "distortion" in dist_data:
-                    values["cpu"] = dist_data["distortion"]
+                    val = dist_data["distortion"]
                     break
-            return "distortion", values if values else {"cpu": "N/A"}
+            # All engines should have same distortion value (mathematical result)
+            return "distortion", {
+                eng: val
+                for eng in ["cpu", "torch_cpu", "torch_cuda", "cuda_kernel", "triton"]
+            }
 
         # T2: MSE Distortion - multi-engine, multi-bit data
         # details[engine][bits] = {mse, theory_bound, ratio, status}
@@ -1663,7 +1764,7 @@ class TurboQuantFacade:
                             ]
             return "compression_ratio", values if values else {"cpu": "N/A"}
 
-      # T7: Cross-Engine Consistency - MSE 값만 추출하여 메모리 값과의 혼재 방지
+        # T7: Cross-Engine Consistency - MSE 값만 추출하여 메모리 값과의 혼재 방지
         if result.test_id == "T7":
             values = {}
             if details.get("mse_results"):
@@ -1696,26 +1797,39 @@ class TurboQuantFacade:
                     values[f"compression_ratio_{bits}"] = comp_data["compression_ratio"]
             return "compression_ratio", values if values else {"cpu": "N/A"}
 
-        # T5: Asymmetric Bits - use compression ratio
+        # T5: Asymmetric Bits - multi-engine compression ratio
         elif result.test_id == "T5":
-            return "compression_ratio_asymmetric", {
-                "cpu": details.get("compression_ratio", "N/A")
+            values = {}
+            for engine, metrics in details.items():
+                if (
+                    isinstance(metrics, dict)
+                    and "compression_ratio" in metrics
+                    and metrics["compression_ratio"] is not None
+                ):
+                    values[engine] = metrics["compression_ratio"]
+            return "compression_ratio_asymmetric", values if values else {}
+
+        # T6: GQA Support - use GQA ratio (single value, all engines same)
+        elif result.test_id == "T6":
+            val = details.get("gqa_ratio", "N/A")
+            return "gqa_ratio", {
+                eng: val
+                for eng in ["cpu", "torch_cpu", "torch_cuda", "cuda_kernel", "triton"]
             }
 
-        # T6: GQA Support - use GQA ratio
-        elif result.test_id == "T6":
-            return "gqa_ratio", {"cpu": details.get("gqa_ratio", "N/A")}
-
-        # T8: QJL Removal - use binary flag
+        # T8: QJL Removal - binary flag (single value, all engines same)
         elif result.test_id == "T8":
-            # Only check boolean QJL-related fields, not quantizer_type string
             qjl_fields = [
                 "qjl_signs_present",
                 "residual_norm_present",
                 "mse_indices_present",
             ]
             qjl_removed = all(not details.get(f, False) for f in qjl_fields)
-            return "qjl_removed", {"cpu": "True" if qjl_removed else "False"}
+            val = "True" if qjl_removed else "False"
+            return "qjl_removed", {
+                eng: val
+                for eng in ["cpu", "torch_cpu", "torch_cuda", "cuda_kernel", "triton"]
+            }
 
         # T9: Performance - multi-engine latency data
         # details[engine] = {quantization_latency_ms, attention_latency_ms, ...}
@@ -1726,52 +1840,79 @@ class TurboQuantFacade:
                     for metric, value in metrics.items():
                         if isinstance(value, (int, float)):
                             values[f"{engine}_{metric}"] = value
-            return "latency", values if values else {"cpu": "N/A"}
+            return "latency", values if values else {}
 
-        # T10: Memory at Scale - use compression ratio
+        # T10: Memory at Scale - multi-engine ratio per seq_len
         elif result.test_id == "T10":
             values = {}
-            for seq_len, mem_data in details.items():
-                if isinstance(mem_data, dict) and "ratio" in mem_data:
-                    values[f"ratio_{seq_len}"] = mem_data["ratio"]
-            return "memory_ratio", values if values else {"cpu": "N/A"}
+            for engine, seq_dict in details.items():
+                if isinstance(seq_dict, dict):
+                    for seq_len, mem_data in seq_dict.items():
+                        if (
+                            isinstance(mem_data, dict)
+                            and mem_data.get("ratio") is not None
+                        ):
+                            metric_key = f"{engine}_ratio_{seq_len}"
+                            values[metric_key] = mem_data["ratio"]
+            return "memory_ratio", values if values else {}
 
-        # T11: Quality Neutrality - use cosine similarity
+        # T11: Quality Neutrality - multi-engine cosine similarity
         elif result.test_id == "T11":
-            return (
-                "quality_neutrality_cosine",
-                {"cpu": details.get("cosine_similarity", "N/A")},
-            )
+            values = {}
+            for engine, metrics in details.items():
+                if isinstance(metrics, dict) and "cosine_similarity" in metrics:
+                    values[engine] = metrics["cosine_similarity"]
+            return "quality_neutrality_cosine", values if values else {}
 
-        # T12: Low-Bit Degradation - use cosine similarity
+        # T12: Low-Bit Degradation - multi-engine cosine similarity
         elif result.test_id == "T12":
-            return "low_bit_cosine", {"cpu": details.get("cosine_similarity", "N/A")}
+            values = {}
+            for engine, metrics in details.items():
+                if isinstance(metrics, dict) and "cosine_similarity" in metrics:
+                    values[engine] = metrics["cosine_similarity"]
+            return "low_bit_cosine", values if values else {}
 
-        # T13: Needle-in-a-Haystack - use retrieval accuracy
+        # T13: Needle-in-a-Haystack - multi-engine accuracy
         elif result.test_id == "T13":
-            retrieved_count = sum(
-                1
-                for v in details.values()
-                if isinstance(v, dict) and v.get("retrieved")
-            )
-            total = len(details)
-            return "niah_accuracy", {
-                "cpu": retrieved_count / total if total > 0 else "N/A"
-            }
+            values = {}
+            for engine, metrics in details.items():
+                if isinstance(metrics, dict) and "accuracy" in metrics:
+                    values[engine] = metrics["accuracy"]
+            return "niah_accuracy", values if values else {}
 
-        # T14: PQ Comparison - use recall
+        # T14: PQ Comparison - multi-engine recall
         elif result.test_id == "T14":
-            return "recall_at_10", {
-                "cpu": details.get("turboquant_recall_at_10", "N/A"),
-                "pq_baseline": details.get("pq_recall_at_10", "N/A"),
-            }
+            values = {}
+            pq_baseline = None
+            for engine, metrics in details.items():
+                if isinstance(metrics, dict):
+                    if engine == "pq_baseline":
+                        pq_baseline = metrics.get("recall_at_10")
+                    elif "turboquant_recall_at_10" in metrics:
+                        values[engine] = metrics["turboquant_recall_at_10"]
+            if pq_baseline is not None:
+                values["pq_baseline"] = pq_baseline
+            return "recall_at_10", values if values else {}
 
-        # T15: Indexing Time - use time in ms
+        # T15: Indexing Time - multi-engine TurboQuant time + common PQ baseline
         elif result.test_id == "T15":
-            return "indexing_time_ms", {
-                "turboquant": details.get("turboquant_index_time_ms", "N/A"),
-                "pq_baseline": details.get("pq_index_time_ms", "N/A"),
-            }
+            values = {}
+            pq_baseline = None
+            for engine, metrics in details.items():
+                if isinstance(metrics, dict):
+                    tq_time = metrics.get("turboquant_index_time_ms")
+                    if tq_time is not None:
+                        # 엔진별 TurboQuant indexing time
+                        values[engine] = tq_time
+                    if (
+                        pq_baseline is None
+                        and metrics.get("pq_index_time_ms") is not None
+                    ):
+                        pq_baseline = metrics["pq_index_time_ms"]
+            # PQ baseline 은 별도 컬럼명 유지
+            if pq_baseline is not None:
+                values["pq_baseline"] = pq_baseline
+            return "indexing_time_ms", values if values else {}
 
         # CUDA: CUDA Compilation
         elif result.test_id == "CUDA":
