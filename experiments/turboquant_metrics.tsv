@@ -1,24 +1,24 @@
 metric_name	cpu	torch_cpu	torch_cuda	cuda_kernel	triton	description
-attention_latency_ms	3.480072	1.541369	0.062213	0.070118	0.063090	Attention score latency (lower = faster)
+attention_latency_ms	3.325587	1.668187	0.061277	0.069719	0.061226	Attention score latency (lower = faster)
 compression_ratio_2	8.000000	8.000000	8.000000	8.000000	8.000000	KV cache compression ratio at 2-bit (higher = better)
 compression_ratio_3	5.333333	5.333333	5.333333	5.333333	5.333333	KV cache compression ratio at 3-bit (higher = better)
 compression_ratio_4	4.000000	4.000000	4.000000	4.000000	4.000000	KV cache compression ratio at 4-bit (higher = better)
 compression_ratio_asymmetric	5.333333	5.333333	5.333333	5.333333	5.333333	Asymmetric K/V compression ratio K4/V2
-correlation_2	0.785292	0.804762	0.817886	0.798878	0.799875	Inner product correlation at 2-bit (target: > 0.75)
-correlation_3	0.923627	0.920805	0.927711	0.922846	0.920926	Inner product correlation at 3-bit (target: > 0.8)
-correlation_4	0.974053	0.976222	0.973637	0.975286	0.972556	Inner product correlation at 4-bit (target: > 0.8)
-cross_engine_mse	0.034816	0.033328	0.033328	0.033328	NA	Cross-engine MSE consistency (cpu, torch_cpu, torch_cuda, cuda_kernel)
+correlation_2	0.799256	0.802548	0.803424	0.808834	0.800280	Inner product correlation at 2-bit (target: > 0.75)
+correlation_3	0.921017	0.926995	0.922490	0.923135	0.923635	Inner product correlation at 3-bit (target: > 0.8)
+correlation_4	0.973693	0.974701	0.974900	0.975101	0.975613	Inner product correlation at 4-bit (target: > 0.8)
+cross_engine_mse	0.033814	0.032942	0.032942	0.032942	0.032942	Cross-engine MSE consistency (cpu, torch_cpu, torch_cuda, cuda_kernel)
 distortion	0.005678	0.005678	0.005678	0.005678	0.005678	Lloyd-Max codebook distortion (lower = better)
-fp16_latency_ms	3.483655	1.544548	0.062390	0.070285	0.063268	FP16 baseline latency for comparison
+fp16_latency_ms	3.329297	1.671461	0.061448	0.069887	0.061388	FP16 baseline latency for comparison
 gqa_ratio	4	4	4	4	4	GQA compression ratio (keys vs values)
-indexing_time_ms	240.512780	16.697607	0.115848	2.705570	0.203513	No description available
-mse_ratio_1	0.530913	0.528944	0.528504	0.529666	0.530992	MSE ratio at 1-bit quantization (target: < 1.5)
-mse_ratio_2	0.682401	0.682984	0.683127	0.683154	0.686155	MSE ratio at 2-bit quantization (target: < 1.5)
-mse_ratio_3	0.798902	0.799534	0.795141	0.801428	0.800048	MSE ratio at 3-bit quantization (target: < 1.5)
-mse_ratio_4	0.871097	0.878144	0.864888	0.868189	0.876304	MSE ratio at 4-bit quantization (target: < 1.5)
-overhead_vs_fp16	0.998971	0.997942	0.997161	0.997635	0.997178	Performance overhead vs FP16 baseline
+indexing_time_ms	226.964760	15.553888	0.126618	2.763493	0.198214	No description available
+mse_ratio_1	0.528195	0.531888	0.531009	0.532266	0.531161	MSE ratio at 1-bit quantization (target: < 1.5)
+mse_ratio_2	0.682671	0.679376	0.683777	0.676556	0.677414	MSE ratio at 2-bit quantization (target: < 1.5)
+mse_ratio_3	0.802570	0.805482	0.803078	0.799951	0.802394	MSE ratio at 3-bit quantization (target: < 1.5)
+mse_ratio_4	0.870869	0.877250	0.873852	0.881940	0.884630	MSE ratio at 4-bit quantization (target: < 1.5)
+overhead_vs_fp16	0.998886	0.998041	0.997217	0.997596	0.997356	Performance overhead vs FP16 baseline
 qjl_removed	True	True	True	True	True	QJL field removed (True = correct)
-quantization_latency_ms	100.765945	14.926905	0.074049	0.112599	0.116622	Quantization latency (lower = faster)
+quantization_latency_ms	88.752404	13.778660	0.074743	0.130152	0.120361	Quantization latency (lower = faster)
 ratio_16384	2.666667	2.666667	2.666667	2.666667	2.666667	Memory usage ratio at 16384 context length
 ratio_32768	2.666667	2.666667	2.666667	2.666667	2.666667	Memory usage ratio at 32768 context length
 ratio_4096	2.666667	2.666667	2.666667	2.666667	2.666667	Memory usage ratio at 4096 context length

@@ -562,27 +562,24 @@ class TurboQuantFacade:
                         engines.append("cuda_kernel")
                 except (ImportError, RuntimeError):
                     pass
-        # Triton requires CUDA + GPU tensor support - skip for now
-        # It causes issues with CPU tensor access in this environment
-        # triton_available = False
-        # if torch.cuda.is_available():
-        #     try:
-        #         import triton
-        #         test_tensor = torch.randn(10, 10, device="cuda")
-        #         @triton.jit
-        #         def test_kernel(x):
-        #             pass
-        #         test_kernel[(1,)](test_tensor)
-        #         triton_available = True
-        #     except (ImportError, RuntimeError, AttributeError, ValueError):
-        #         triton_available = False
-        #
-        # if triton_available:
-        #     engines.append("triton")
+        # Triton 엔진 가용성 동적 체크 및 활성화
+        if torch.cuda.is_available():
+            try:
+                import triton
+
+                test_tensor = torch.randn(8, 8, device="cuda")
+
+                @triton.jit
+                def _test_triton_kernel(x):
+                    pass
+
+                _test_triton_kernel[(1,)](test_tensor)
+                engines.append("triton")
+            except (ImportError, RuntimeError, AttributeError, ValueError):
+                pass
 
         # If only 1-2 engines available, skip (need at least 2 for basic comparison)
-        # With 3+ engines (cpu, torch_cpu, torch_cuda), we can still meaningfully compare
-        # even if cuda_kernel is unavailable
+        # With 3+ engines (cpu, torch_cpu, torch_cuda, cuda_kernel, triton), we can meaningfully compare
         if len(engines) <= 1:
             return TestResult(
                 test_id="T7",
@@ -596,29 +593,34 @@ class TurboQuantFacade:
             )
 
         d, bits = 64, 3
-        x_torch = torch.randn(100, d)
-        x_torch = x_torch / x_torch.norm(dim=-1, keepdim=True)
+        x_torch_base = torch.randn(100, d)
+        x_torch_base = x_torch_base / x_torch_base.norm(dim=-1, keepdim=True)
 
         mse_results = {}
         memory_results = {}
 
+        # SSOT: 엔진별 디바이스 매핑 사용
+        engine_device_map = TurboQuantProdFactory._ENGINE_TO_DEVICE
+
         for engine in engines:
             try:
+                target_device = engine_device_map.get(engine, "cpu")
                 quantizer = TurboQuantProdFactory.create_quantizer(
                     method="turboquant",
                     engine=engine,
                     d=d,
                     bits=bits,
                     seed=42,
-                    device="cpu",
+                    device=target_device,
                 )
 
-                x_input = x_torch.numpy() if engine == "numpy" else x_torch
-                x_hat, _ = quantizer.quantize(x_input)
-
-                if engine == "numpy":
+                if engine == "cpu":
+                    x_input = x_torch_base.numpy()
+                    x_hat, _ = quantizer.quantize(x_input)
                     mse = float(((x_input - x_hat) ** 2).sum(axis=-1).mean())
                 else:
+                    x_input = x_torch_base.to(target_device)
+                    x_hat, _ = quantizer.quantize(x_input)
                     mse = ((x_input - x_hat) ** 2).sum(dim=-1).mean().item()
 
                 mse_results[engine] = mse
@@ -630,12 +632,17 @@ class TurboQuantFacade:
                     d_value=d,
                     key_bits=4,
                     value_bits=2,
-                    device="cpu",
+                    device=target_device,
                 )
 
-                test_keys = x_torch.numpy() if engine == "numpy" else x_torch
-                test_values = x_torch.numpy() if engine == "numpy" else x_torch
-                cache.append(test_keys[:10], test_values[:10])
+                if engine == "cpu":
+                    test_keys = x_torch_base.numpy()[:10]
+                    test_values = x_torch_base.numpy()[:10]
+                else:
+                    test_keys = x_torch_base.to(target_device)[:10]
+                    test_values = x_torch_base.to(target_device)[:10]
+
+                cache.append(test_keys, test_values)
 
                 usage = cache.memory_usage_bits()
                 memory_results[engine] = usage["total_bits"]
@@ -1079,6 +1086,12 @@ class TurboQuantFacade:
                 "max_score": float(max_score),
                 "retrieved_idx": int(needle_idx),
             }
+
+        # TSV extraction: accuracy metric
+        total_cases = len(test_cases)
+        passed_cases = sum(1 for v in results.values() if v.get("retrieved", False))
+        accuracy = passed_cases / total_cases if total_cases > 0 else 0.0
+        results["accuracy"] = float(accuracy)
 
         return {
             "status": "PASS" if all_passed else "FAIL",
