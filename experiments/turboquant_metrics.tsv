@@ -1,25 +1,25 @@
-metric_name	cpu	torch_cpu	torch_cuda	cuda_kernel	triton	description
-attention_latency_ms	3.325587	1.668187	0.061277	0.069719	0.061226	Attention score latency (lower = faster)
-compression_ratio_2	8.000000	8.000000	8.000000	8.000000	8.000000	KV cache compression ratio at 2-bit (higher = better)
-compression_ratio_3	5.333333	5.333333	5.333333	5.333333	5.333333	KV cache compression ratio at 3-bit (higher = better)
-compression_ratio_4	4.000000	4.000000	4.000000	4.000000	4.000000	KV cache compression ratio at 4-bit (higher = better)
-compression_ratio_asymmetric	5.333333	5.333333	5.333333	5.333333	5.333333	Asymmetric K/V compression ratio K4/V2
-correlation_2	0.799256	0.802548	0.803424	0.808834	0.800280	Inner product correlation at 2-bit (target: > 0.75)
-correlation_3	0.921017	0.926995	0.922490	0.923135	0.923635	Inner product correlation at 3-bit (target: > 0.8)
-correlation_4	0.973693	0.974701	0.974900	0.975101	0.975613	Inner product correlation at 4-bit (target: > 0.8)
-cross_engine_mse	0.033814	0.032942	0.032942	0.032942	0.032942	Cross-engine MSE consistency (cpu, torch_cpu, torch_cuda, cuda_kernel)
-distortion	0.005678	0.005678	0.005678	0.005678	0.005678	Lloyd-Max codebook distortion (lower = better)
-fp16_latency_ms	3.329297	1.671461	0.061448	0.069887	0.061388	FP16 baseline latency for comparison
-gqa_ratio	4	4	4	4	4	GQA compression ratio (keys vs values)
-indexing_time_ms	226.964760	15.553888	0.126618	2.763493	0.198214	No description available
-mse_ratio_1	0.528195	0.531888	0.531009	0.532266	0.531161	MSE ratio at 1-bit quantization (target: < 1.5)
-mse_ratio_2	0.682671	0.679376	0.683777	0.676556	0.677414	MSE ratio at 2-bit quantization (target: < 1.5)
-mse_ratio_3	0.802570	0.805482	0.803078	0.799951	0.802394	MSE ratio at 3-bit quantization (target: < 1.5)
-mse_ratio_4	0.870869	0.877250	0.873852	0.881940	0.884630	MSE ratio at 4-bit quantization (target: < 1.5)
-overhead_vs_fp16	0.998886	0.998041	0.997217	0.997596	0.997356	Performance overhead vs FP16 baseline
-qjl_removed	True	True	True	True	True	QJL field removed (True = correct)
-quantization_latency_ms	88.752404	13.778660	0.074743	0.130152	0.120361	Quantization latency (lower = faster)
-ratio_16384	2.666667	2.666667	2.666667	2.666667	2.666667	Memory usage ratio at 16384 context length
-ratio_32768	2.666667	2.666667	2.666667	2.666667	2.666667	Memory usage ratio at 32768 context length
-ratio_4096	2.666667	2.666667	2.666667	2.666667	2.666667	Memory usage ratio at 4096 context length
-ratio_8192	2.666667	2.666667	2.666667	2.666667	2.666667	Memory usage ratio at 8192 context length
+metric_name	cpu_v1	torch_cpu_v1	torch_cuda_v1	cuda_kernel_v1	triton_v1	torch_cpu_v3	torch_cuda_v3	description
+attention_latency_ms	3.896212	1.633669	0.059938	0.070254	0.060703	NA	NA	Attention score latency (lower = faster)
+compression_ratio_2	8.000000	8.000000	8.000000	8.000000	8.000000	3.379538	3.379538	TQ/TQ-V3 KV cache compression ratio at 2-bit
+compression_ratio_3	5.333333	5.333333	5.333333	5.333333	5.333333	3.379538	3.379538	TQ/TQ-V3 KV cache compression ratio at 3-bit
+compression_ratio_4	4.000000	4.000000	4.000000	4.000000	4.000000	3.379538	3.379538	TQ/TQ-V3 KV cache compression ratio at 4-bit
+compression_ratio_asymmetric	5.333333	5.333333	5.333333	5.333333	5.333333	1.000000	1.000000	TQ/TQ-V3 asymmetric K4/V2 compression ratio
+correlation_2	0.797296	0.802107	0.805078	0.799453	0.804848	NA	NA	No description available
+correlation_3	0.922772	0.928138	0.923415	0.921053	0.924423	NA	NA	No description available
+correlation_4	0.975347	0.975535	0.976100	0.976311	0.973669	NA	NA	No description available
+cross_engine_mse	0.032963	0.033764	0.033764	0.033764	0.033764	NA	NA	Cross-engine MSE consistency (V1 engines)
+distortion	0.005678	0.005678	0.005678	0.005678	0.005678	NA	NA	TQ Lloyd-Max codebook distortion (lower = better)
+fp16_latency_ms	3.899923	1.637034	0.060100	0.070416	0.060868	NA	NA	FP16 baseline latency for comparison
+gqa_ratio	4	4	4	4	4	NA	NA	GQA compression ratio (keys vs values)
+indexing_time_ms	105.875089	15.775839	0.111911	0.198414	0.199116	NA	NA	No description available
+mse_ratio_1	0.528268	0.532478	0.530980	0.529975	0.531061	NA	NA	TQ/TQ-V3 MSE ratio at 1-bit (target: < 1.5)
+mse_ratio_2	0.682703	0.684519	0.681765	0.679852	0.679223	NA	NA	TQ/TQ-V3 MSE ratio at 2-bit (target: < 1.5)
+mse_ratio_3	0.793508	0.802199	0.794608	0.800774	0.801893	NA	NA	TQ/TQ-V3 MSE ratio at 3-bit (target: < 1.5)
+mse_ratio_4	0.867743	0.888842	0.883717	0.881501	0.871499	NA	NA	TQ/TQ-V3 MSE ratio at 4-bit (target: < 1.5)
+overhead_vs_fp16	0.999049	0.997944	0.997299	0.997701	0.997289	NA	NA	Performance overhead vs FP16 baseline
+qjl_removed	True	True	True	True	True	NA	NA	QJL field removed (True = correct)
+quantization_latency_ms	89.811202	13.736210	0.074703	0.118200	0.118544	NA	NA	Quantization latency (lower = faster)
+ratio_16384	2.666667	2.666667	2.666667	2.666667	2.666667	NA	NA	Memory usage ratio at 16384 context length
+ratio_32768	2.666667	2.666667	2.666667	2.666667	2.666667	NA	NA	Memory usage ratio at 32768 context length
+ratio_4096	2.666667	2.666667	2.666667	2.666667	2.666667	NA	NA	Memory usage ratio at 4096 context length
+ratio_8192	2.666667	2.666667	2.666667	2.666667	2.666667	NA	NA	Memory usage ratio at 8192 context length

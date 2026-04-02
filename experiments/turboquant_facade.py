@@ -59,6 +59,18 @@ class ExperimentSummary:
         return asdict(self)
 
 
+# === SSOT Constants for V1/V3 Support ===
+_METHOD_SUPPORTED_ENGINES = {
+    "turboquant": ["cpu", "torch_cpu", "torch_cuda", "cuda_kernel", "triton"],
+    "turboquant_v3": ["torch_cpu", "torch_cuda"],
+}
+
+_METHOD_SUFFIX = {
+    "turboquant": "v1",
+    "turboquant_v3": "v3",
+}
+
+
 class TurboQuantFacade:
     """Comprehensive test facade for TurboQuant."""
 
@@ -329,7 +341,7 @@ class TurboQuantFacade:
         }
 
     def test_4_kv_cache_compression(self) -> Dict:
-        """T4: KV Cache Compression Ratios across engines."""
+        """T4: KV Cache Compression Ratios across engines and methods."""
         from methods.turboquant_factory import TurboQuantProdFactory
 
         results = {}
@@ -337,28 +349,116 @@ class TurboQuantFacade:
         d_key, d_value = 128, 128
         seq_len = 1024
 
-        # Test engines in priority order
-        engines_to_test = ["cpu", "torch_cpu"]
+        # SSOT: Build method-engine map from supported engines
+        active_engines = ["cpu", "torch_cpu"]
         if torch.cuda.is_available():
-            engines_to_test.extend(["cuda_kernel", "torch_cuda", "triton"])
-        else:
-            engines_to_test.extend(["torch_cuda"])
+            active_engines.extend(["cuda_kernel", "torch_cuda", "triton"])
 
-        # SSOT: engine_device_map from TurboQuantProdFactory
+        method_engine_map = {
+            method: [e for e in engines if e in active_engines]
+            for method, engines in _METHOD_SUPPORTED_ENGINES.items()
+        }
+
         engine_device_map = TurboQuantProdFactory._ENGINE_TO_DEVICE
 
-        for engine in engines_to_test:
-            engine_results = {}
-            device = engine_device_map.get(engine, "cpu")
-            for bits in [2, 3, 4]:
+        for method, supported_engines in method_engine_map.items():
+            method_results = {}
+            for engine in supported_engines:
+                engine_results = {}
+                device = engine_device_map.get(engine, "cpu")
+                for bits in [2, 3, 4]:
+                    try:
+                        # V3 uses fixed asymmetric K4/V2
+                        if method == "turboquant_v3":
+                            key_bits, value_bits = 4, 2
+                        else:
+                            key_bits, value_bits = bits, bits
+
+                        cache = TurboQuantProdFactory.create_kvcache(
+                            method=method,
+                            engine=engine,
+                            d_key=d_key,
+                            d_value=d_value,
+                            bits=bits,
+                            key_bits=key_bits,
+                            value_bits=value_bits,
+                            seed=42,
+                        )
+
+                        keys = torch.randn(seq_len, d_key, device=device)
+                        values = torch.randn(seq_len, d_value, device=device)
+                        cache.append(keys, values)
+
+                        usage = cache.memory_usage_bits()
+                        expected_ratio = 16 / ((4 + 2) / 2) if bits == 3 else 16 / bits
+
+                        engine_results[str(bits)] = {
+                            "compression_ratio": float(usage["compression_ratio"]),
+                            "compressed_kb": float(usage["total_bits"] / 8 / 1024),
+                            "fp16_kb": float(usage["fp16_bits"] / 8 / 1024),
+                            "expected_ratio": float(expected_ratio),
+                        }
+                    except (ImportError, NotImplementedError, RuntimeError) as e:
+                        engine_results[str(bits)] = {
+                            "compression_ratio": None,
+                            "compressed_kb": None,
+                            "fp16_kb": None,
+                            "expected_ratio": None,
+                            "status": f"SKIP: {e}",
+                        }
+
+                method_results[engine] = engine_results
+            results[method] = method_results
+
+        return {
+            "status": "PASS" if all_ok else "WARN",
+            "message": "Compression ratios calculated across methods and engines",
+            "details": results,
+        }
+
+    def test_5_asymmetric_bits(self) -> Dict:
+        """T5: Asymmetric Bit Allocation across methods and engines."""
+        from methods.turboquant_factory import TurboQuantProdFactory
+
+        d_key, d_value = 128, 128
+        seq_len = 100
+
+        results = {}
+        all_ok = True
+
+        # SSOT: Build method-engine map
+        active_engines = ["cpu", "torch_cpu"]
+        if torch.cuda.is_available():
+            active_engines.extend(["cuda_kernel", "torch_cuda", "triton"])
+
+        method_engine_map = {
+            method: [e for e in engines if e in active_engines]
+            for method, engines in _METHOD_SUPPORTED_ENGINES.items()
+        }
+
+        engine_device_map = TurboQuantProdFactory._ENGINE_TO_DEVICE
+
+        for method, supported_engines in method_engine_map.items():
+            method_results = {}
+            for engine in supported_engines:
+                device = engine_device_map.get(engine, "cpu")
                 try:
+                    # V3 uses fixed asymmetric K4/V2, V1 tests all configs
+                    if method == "turboquant_v3":
+                        bits, key_bits, value_bits = 3, 4, 2
+                    else:
+                        bits, key_bits, value_bits = 3, 4, 2
+
                     cache = TurboQuantProdFactory.create_kvcache(
-                        method="turboquant",
+                        method=method,
                         engine=engine,
                         d_key=d_key,
                         d_value=d_value,
                         bits=bits,
+                        key_bits=key_bits,
+                        value_bits=value_bits,
                         seed=42,
+                        device=device,
                     )
 
                     keys = torch.randn(seq_len, d_key, device=device)
@@ -366,100 +466,38 @@ class TurboQuantFacade:
                     cache.append(keys, values)
 
                     usage = cache.memory_usage_bits()
-                    expected_ratio = 16 / ((4 + 2) / 2) if bits == 3 else 16 / bits
 
-                    engine_results[str(bits)] = {
+                    expected_key_indices = seq_len * d_key
+                    expected_value_indices = seq_len * d_value
+                    expected_bits = (
+                        expected_key_indices * 4 + expected_value_indices * 2
+                    )
+
+                    match = usage["total_bits"] == expected_bits
+                    if not match:
+                        all_ok = False
+
+                    method_results[engine] = {
+                        "actual_bits": usage["total_bits"],
+                        "expected_bits": expected_bits,
                         "compression_ratio": float(usage["compression_ratio"]),
-                        "compressed_kb": float(usage["total_bits"] / 8 / 1024),
-                        "fp16_kb": float(usage["fp16_bits"] / 8 / 1024),
-                        "expected_ratio": float(expected_ratio),
+                        "fp16_bits": usage["fp16_bits"],
+                        "status": "OK" if match else "MISMATCH",
                     }
                 except (ImportError, NotImplementedError, RuntimeError) as e:
-                    engine_results[str(bits)] = {
+                    method_results[engine] = {
+                        "actual_bits": None,
+                        "expected_bits": None,
                         "compression_ratio": None,
-                        "compressed_kb": None,
-                        "fp16_kb": None,
-                        "expected_ratio": None,
+                        "fp16_bits": None,
                         "status": f"SKIP: {e}",
                     }
-
-            results[engine] = engine_results
-
-        return {
-            "status": "PASS" if all_ok else "WARN",
-            "message": "Compression ratios calculated across engines",
-            "details": results,
-        }
-
-    def test_5_asymmetric_bits(self) -> Dict:
-        """T5: Asymmetric Bit Allocation across engines."""
-        from methods.turboquant_factory import TurboQuantProdFactory
-
-        d_key, d_value = 128, 128
-        seq_len = 100
-
-        # 엔진별 결과 저장
-        engine_results = {}
-        all_ok = True
-
-        # T2/T9 와 동일한 엔진 구성
-        engines_to_test = ["cpu", "torch_cpu"]
-        if torch.cuda.is_available():
-            engines_to_test.extend(["cuda_kernel", "torch_cuda", "triton"])
-        else:
-            engines_to_test.extend(["torch_cuda"])
-
-        engine_device_map = TurboQuantProdFactory._ENGINE_TO_DEVICE
-
-        for engine in engines_to_test:
-            device = engine_device_map.get(engine, "cpu")
-            try:
-                cache = TurboQuantProdFactory.create_kvcache(
-                    method="turboquant",
-                    engine=engine,
-                    d_key=d_key,
-                    d_value=d_value,
-                    bits=3,
-                    key_bits=4,
-                    value_bits=2,
-                    seed=42,
-                    device=device,
-                )
-
-                keys = torch.randn(seq_len, d_key, device=device)
-                values = torch.randn(seq_len, d_value, device=device)
-                cache.append(keys, values)
-
-                usage = cache.memory_usage_bits()
-
-                expected_key_indices = seq_len * d_key
-                expected_value_indices = seq_len * d_value
-                expected_bits = expected_key_indices * 4 + expected_value_indices * 2
-
-                match = usage["total_bits"] == expected_bits
-                if not match:
-                    all_ok = False
-
-                engine_results[engine] = {
-                    "actual_bits": usage["total_bits"],
-                    "expected_bits": expected_bits,
-                    "compression_ratio": float(usage["compression_ratio"]),
-                    "fp16_bits": usage["fp16_bits"],
-                    "status": "OK" if match else "MISMATCH",
-                }
-            except (ImportError, NotImplementedError, RuntimeError) as e:
-                engine_results[engine] = {
-                    "actual_bits": None,
-                    "expected_bits": None,
-                    "compression_ratio": None,
-                    "fp16_bits": None,
-                    "status": f"SKIP: {e}",
-                }
+            results[method] = method_results
 
         return {
             "status": "PASS" if all_ok else "FAIL",
-            "message": "Asymmetric bit allocation checked across engines",
-            "details": engine_results,
+            "message": "Asymmetric bit allocation checked across methods and engines",
+            "details": results,
         }
 
     def test_6_gqa_support(self) -> Dict:
@@ -1589,7 +1627,7 @@ class TurboQuantFacade:
 
         Format:
         - Column 1: metric_name (short form)
-        - Columns 2-6: Values for each engine (cpu, torch_cpu, torch_cuda, cuda_kernel, triton)
+        - Columns 2+: Values for each method-engine combination (cpu_v1, torch_cpu_v1, torch_cpu_v3, ...)
         - Last column: description
 
         Returns: Path to the TSV file
@@ -1597,24 +1635,28 @@ class TurboQuantFacade:
         self.log("Exporting results to wide-format TSV...")
 
         tsv_file = self.output_dir / filename
-        engines = ["cpu", "torch_cpu", "torch_cuda", "cuda_kernel", "triton"]
 
-        # Metric descriptions
+        # SSOT: Build dynamic columns from supported methods and engines
+        all_columns = []
+        for method, engines in _METHOD_SUPPORTED_ENGINES.items():
+            suffix = _METHOD_SUFFIX[method]
+            for engine in engines:
+                col = f"{engine}_{suffix}"
+                all_columns.append(col)
+
+        # Metric descriptions (V1/V3 unified)
         metric_descriptions = {
-            "distortion": "Lloyd-Max codebook distortion (lower = better)",
-            "mse_ratio_1": "MSE ratio at 1-bit quantization (target: < 1.5)",
-            "mse_ratio_2": "MSE ratio at 2-bit quantization (target: < 1.5)",
-            "mse_ratio_3": "MSE ratio at 3-bit quantization (target: < 1.5)",
-            "mse_ratio_4": "MSE ratio at 4-bit quantization (target: < 1.5)",
-            "correlation_2": "Inner product correlation at 2-bit (target: > 0.75)",
-            "correlation_3": "Inner product correlation at 3-bit (target: > 0.8)",
-            "correlation_4": "Inner product correlation at 4-bit (target: > 0.8)",
-            "compression_ratio_2": "KV cache compression ratio at 2-bit (higher = better)",
-            "compression_ratio_3": "KV cache compression ratio at 3-bit (higher = better)",
-            "compression_ratio_4": "KV cache compression ratio at 4-bit (higher = better)",
-            "compression_ratio_asymmetric": "Asymmetric K/V compression ratio K4/V2",
+            "distortion": "TQ Lloyd-Max codebook distortion (lower = better)",
+            "mse_ratio_1": "TQ/TQ-V3 MSE ratio at 1-bit (target: < 1.5)",
+            "mse_ratio_2": "TQ/TQ-V3 MSE ratio at 2-bit (target: < 1.5)",
+            "mse_ratio_3": "TQ/TQ-V3 MSE ratio at 3-bit (target: < 1.5)",
+            "mse_ratio_4": "TQ/TQ-V3 MSE ratio at 4-bit (target: < 1.5)",
+            "compression_ratio_2": "TQ/TQ-V3 KV cache compression ratio at 2-bit",
+            "compression_ratio_3": "TQ/TQ-V3 KV cache compression ratio at 3-bit",
+            "compression_ratio_4": "TQ/TQ-V3 KV cache compression ratio at 4-bit",
+            "compression_ratio_asymmetric": "TQ/TQ-V3 asymmetric K4/V2 compression ratio",
             "gqa_ratio": "GQA compression ratio (keys vs values)",
-            "cross_engine_mse": "Cross-engine MSE consistency (cpu, torch_cpu, torch_cuda, cuda_kernel)",
+            "cross_engine_mse": "Cross-engine MSE consistency (V1 engines)",
             "qjl_removed": "QJL field removed (True = correct)",
             "quantization_latency_ms": "Quantization latency (lower = faster)",
             "attention_latency_ms": "Attention score latency (lower = faster)",
@@ -1633,73 +1675,81 @@ class TurboQuantFacade:
         }
 
         # Collect metrics by test
-        # Structure: {metric_suffix: {engine: value}}
-        # e.g., {"mse_ratio_1": {"cpu": 0.53, "torch_cpu": 0.52, ...}}
-        metrics_by_suffix = {}
+        # Structure: {metric_name: {col_key: value}}
+        # e.g., {"compression_ratio_3": {"cpu_v1": 5.33, "torch_cpu_v3": 3.38, ...}}
+        metrics_by_name = {}
 
         for result in self.results:
             if result.test_id == "CUDA":
                 continue
 
             metric_name, values = self._extract_metric_value(result)
+            if not metric_name or not values:
+                continue
 
-            if metric_name and values:
-                # Special handling for cross_engine_mse - all values are for this single metric
-                if metric_name == "cross_engine_mse":
-                    # Store each engine's value under the metric_name
-                    for eng, val in values.items():
-                        if val is None:
-                            continue
-                        if metric_name not in metrics_by_suffix:
-                            metrics_by_suffix[metric_name] = {}
-                        # Use engine name as the column key
-                        if eng in engines:
-                            metrics_by_suffix[metric_name][eng] = val
+            for raw_key, val in values.items():
+                if val is None:
+                    continue
 
-                # Parse keys like "cpu_mse_ratio_1", "torch_cpu_correlation_2", etc.
-                for key, val in values.items():
-                    if val is None:
-                        continue
+                # Parse col_key from keys like "compression_ratio_3_cpu_v1" or "torch_cpu_v3_compression_ratio_3"
+                col_key = None
+                metric_suffix = None
 
-                    # Check if key has engine prefix (e.g., "cpu_mse_ratio_1")
-                    engine_matched = False
-                    for eng in engines:
-                        if key.startswith(f"{eng}_"):
-                            metric_suffix = key[len(f"{eng}_") :]
-                            if metric_suffix not in metrics_by_suffix:
-                                metrics_by_suffix[metric_suffix] = {}
-                            metrics_by_suffix[metric_suffix][eng] = val
-                            engine_matched = True
+                # Try new format: {metric}_{col_key} - match longest column first to avoid partial matches
+                for full_col in sorted(all_columns, key=len, reverse=True):
+                    if f"_{full_col}" in raw_key:
+                        col_key = full_col
+                        # Extract metric suffix (everything before the last _{col_key})
+                        suffix_start = raw_key.rfind(f"_{full_col}")
+                        metric_suffix = raw_key[:suffix_start]
+                        break
+
+                # Try old format: {col_key}_{metric}
+                if not col_key:
+                    for full_col in sorted(all_columns, key=len, reverse=True):
+                        prefix = f"{full_col}_"
+                        if raw_key.startswith(prefix):
+                            col_key = full_col
+                            metric_suffix = raw_key[len(prefix) :]
                             break
 
-                    # If key is exactly an engine name, it's a single-engine metric value
-                    # Store under metric_name with engine as column
-                    if not engine_matched and key in engines:
-                        if metric_name not in metrics_by_suffix:
-                            metrics_by_suffix[metric_name] = {}
-                        metrics_by_suffix[metric_name][key] = val
-                        continue
+                # Try old format: {col_key}_{metric}
+                if not col_key:
+                    for full_col in all_columns:
+                        prefix = f"{full_col}_"
+                        if raw_key.startswith(prefix):
+                            col_key = full_col
+                            metric_suffix = raw_key[len(prefix) :]
+                            break
 
-                    # If no engine prefix or engine name found, treat as single-engine metric (use "cpu" as default)
-                    if not engine_matched:
-                        if metric_name not in metrics_by_suffix:
-                            metrics_by_suffix[metric_name] = {}
-                        metrics_by_suffix[metric_name]["cpu"] = val
+                # Fallback: try to match engine_v1 pattern
+                if not col_key:
+                    for engine in _METHOD_SUPPORTED_ENGINES["turboquant"]:
+                        prefix = f"{engine}_"
+                        if raw_key.startswith(prefix):
+                            col_key = f"{engine}_v1"
+                            metric_suffix = raw_key[len(prefix) :]
+                            break
+
+                if col_key and metric_suffix:
+                    if metric_suffix not in metrics_by_name:
+                        metrics_by_name[metric_suffix] = {}
+                    metrics_by_name[metric_suffix][col_key] = val
 
         # Write TSV
         with open(tsv_file, "w", encoding="utf-8") as f:
             # Write header
-            header = ["metric_name"] + engines + ["description"]
+            header = ["metric_name"] + all_columns + ["description"]
             f.write("\t".join(header) + "\n")
 
             # Write each metric row (sorted by metric name)
-            for metric_suffix in sorted(metrics_by_suffix.keys()):
-                row = [metric_suffix]
-                eng_data = metrics_by_suffix[metric_suffix]
+            for metric_name in sorted(metrics_by_name.keys()):
+                row = [metric_name]
+                col_data = metrics_by_name[metric_name]
 
-                for eng in engines:
-                    if eng in eng_data:
-                        val = eng_data[eng]
+                for col in all_columns:
+                    if col in col_data:
+                        val = col_data[col]
                         if isinstance(val, float):
                             row.append(f"{val:.6f}")
                         elif isinstance(val, int):
@@ -1710,9 +1760,7 @@ class TurboQuantFacade:
                         row.append("NA")
 
                 # Add description
-                desc = metric_descriptions.get(
-                    metric_suffix, "No description available"
-                )
+                desc = metric_descriptions.get(metric_name, "No description available")
                 row.append(desc)
 
                 f.write("\t".join(row) + "\n")
@@ -1725,7 +1773,7 @@ class TurboQuantFacade:
         """Extract metric name and values from test result.
 
         Returns:
-            tuple: (metric_name, values_dict) where values_dict maps engine -> value
+            tuple: (metric_name, values_dict) where values_dict maps col_key -> value
         """
         details = result.details
 
@@ -1737,8 +1785,9 @@ class TurboQuantFacade:
                     val = dist_data["distortion"]
                     break
             # All engines should have same distortion value (mathematical result)
+            # Use metric_{col_key} format
             return "distortion", {
-                eng: val
+                f"distortion_{eng}_v1": val
                 for eng in ["cpu", "torch_cpu", "torch_cuda", "cuda_kernel", "triton"]
             }
 
@@ -1750,8 +1799,9 @@ class TurboQuantFacade:
                 if isinstance(bits_data, dict):
                     for bits, metrics in bits_data.items():
                         if isinstance(metrics, dict) and "ratio" in metrics:
-                            values[f"{engine}_mse_ratio_{bits}"] = metrics["ratio"]
-            return "mse_ratio", values if values else {"cpu": "N/A"}
+                            # Use engine as col_key, metric_suffix is mse_ratio_{bits}
+                            values[f"mse_ratio_{bits}_{engine}_v1"] = metrics["ratio"]
+            return "mse_ratio", values if values else {}
 
         # T3: Inner Product - multi-engine, multi-bit data
         if result.test_id == "T3":
@@ -1760,22 +1810,27 @@ class TurboQuantFacade:
                 if isinstance(bits_data, dict):
                     for bits, metrics in bits_data.items():
                         if isinstance(metrics, dict) and "correlation" in metrics:
-                            values[f"{engine}_correlation_{bits}"] = metrics[
+                            values[f"correlation_{bits}_{engine}_v1"] = metrics[
                                 "correlation"
                             ]
-            return "correlation", values if values else {"cpu": "N/A"}
+            return "correlation", values if values else {}
 
-        # T4: KV Cache Compression - multi-engine, multi-bit data
+        # T4: KV Cache Compression - method > engine > bits structure
         if result.test_id == "T4":
             values = {}
-            for engine, bits_data in details.items():
-                if isinstance(bits_data, dict):
+            for method, engine_dict in details.items():
+                if not isinstance(engine_dict, dict):
+                    continue
+                for engine, bits_data in engine_dict.items():
+                    if not isinstance(bits_data, dict):
+                        continue
+                    col_key = f"{engine}_{_METHOD_SUFFIX.get(method, 'v1')}"
                     for bits, metrics in bits_data.items():
                         if isinstance(metrics, dict) and "compression_ratio" in metrics:
-                            values[f"{engine}_compression_ratio_{bits}"] = metrics[
+                            values[f"compression_ratio_{bits}_{col_key}"] = metrics[
                                 "compression_ratio"
                             ]
-            return "compression_ratio", values if values else {"cpu": "N/A"}
+            return "compression_ratio", values if values else {}
 
         # T7: Cross-Engine Consistency - MSE 값만 추출하여 메모리 값과의 혼재 방지
         if result.test_id == "T7":
@@ -1783,7 +1838,7 @@ class TurboQuantFacade:
             if details.get("mse_results"):
                 for engine, mse in details["mse_results"].items():
                     if mse is not None and isinstance(mse, (int, float)):
-                        values[engine] = float(mse)
+                        values[f"cross_engine_mse_{engine}_v1"] = float(mse)
             return "cross_engine_mse", values if values else {}
 
         # T2: MSE Distortion - use MSE ratio
@@ -1810,23 +1865,31 @@ class TurboQuantFacade:
                     values[f"compression_ratio_{bits}"] = comp_data["compression_ratio"]
             return "compression_ratio", values if values else {"cpu": "N/A"}
 
-        # T5: Asymmetric Bits - multi-engine compression ratio
+        # T5: Asymmetric Bits - method > engine structure
         elif result.test_id == "T5":
             values = {}
-            for engine, metrics in details.items():
-                if (
-                    isinstance(metrics, dict)
-                    and "compression_ratio" in metrics
-                    and metrics["compression_ratio"] is not None
-                ):
-                    values[engine] = metrics["compression_ratio"]
+            for method, engine_dict in details.items():
+                if not isinstance(engine_dict, dict):
+                    continue
+                for engine, metrics in engine_dict.items():
+                    if (
+                        isinstance(metrics, dict)
+                        and "compression_ratio" in metrics
+                        and metrics["compression_ratio"] is not None
+                    ):
+                        col_key = f"{engine}_{_METHOD_SUFFIX.get(method, 'v1')}"
+                        # Use metric_{col_key} format
+                        values[f"compression_ratio_asymmetric_{col_key}"] = metrics[
+                            "compression_ratio"
+                        ]
             return "compression_ratio_asymmetric", values if values else {}
 
         # T6: GQA Support - use GQA ratio (single value, all engines same)
         elif result.test_id == "T6":
             val = details.get("gqa_ratio", "N/A")
+            # Use metric_{col_key} format
             return "gqa_ratio", {
-                eng: val
+                f"gqa_ratio_{eng}_v1": val
                 for eng in ["cpu", "torch_cpu", "torch_cuda", "cuda_kernel", "triton"]
             }
 
@@ -1839,8 +1902,9 @@ class TurboQuantFacade:
             ]
             qjl_removed = all(not details.get(f, False) for f in qjl_fields)
             val = "True" if qjl_removed else "False"
+            # Use metric_{col_key} format
             return "qjl_removed", {
-                eng: val
+                f"qjl_removed_{eng}_v1": val
                 for eng in ["cpu", "torch_cpu", "torch_cuda", "cuda_kernel", "triton"]
             }
 
@@ -1852,21 +1916,45 @@ class TurboQuantFacade:
                 if isinstance(metrics, dict):
                     for metric, value in metrics.items():
                         if isinstance(value, (int, float)):
-                            values[f"{engine}_{metric}"] = value
+                            # Use metric_{engine}_v1 format for proper parsing
+                            values[f"{metric}_{engine}_v1"] = value
             return "latency", values if values else {}
 
-        # T10: Memory at Scale - multi-engine ratio per seq_len
+        # T10: Memory at Scale - method > engine > seq_len structure
         elif result.test_id == "T10":
             values = {}
-            for engine, seq_dict in details.items():
-                if isinstance(seq_dict, dict):
-                    for seq_len, mem_data in seq_dict.items():
-                        if (
-                            isinstance(mem_data, dict)
-                            and mem_data.get("ratio") is not None
-                        ):
-                            metric_key = f"{engine}_ratio_{seq_len}"
-                            values[metric_key] = mem_data["ratio"]
+            # Handle both V3 format (method > engine) and V1 format (engine only)
+            if details and isinstance(details, dict):
+                # Check if it's V3 format (method in keys) or V1 format (engine in keys)
+                if any(m in details for m in _METHOD_SUPPORTED_ENGINES.keys()):
+                    # V3 format: details[method][engine][seq_len]
+                    for method, engine_dict in details.items():
+                        if not isinstance(engine_dict, dict):
+                            continue
+                        for engine, seq_dict in engine_dict.items():
+                            if not isinstance(seq_dict, dict):
+                                continue
+                            col_key = f"{engine}_{_METHOD_SUFFIX.get(method, 'v1')}"
+                            for seq_len, mem_data in seq_dict.items():
+                                if (
+                                    isinstance(mem_data, dict)
+                                    and mem_data.get("ratio") is not None
+                                ):
+                                    values[f"ratio_{seq_len}_{col_key}"] = mem_data[
+                                        "ratio"
+                                    ]
+                else:
+                    # V1 format: details[engine][seq_len]
+                    for engine, seq_dict in details.items():
+                        if not isinstance(seq_dict, dict):
+                            continue
+                        col_key = f"{engine}_v1"
+                        for seq_len, mem_data in seq_dict.items():
+                            if (
+                                isinstance(mem_data, dict)
+                                and mem_data.get("ratio") is not None
+                            ):
+                                values[f"ratio_{seq_len}_{col_key}"] = mem_data["ratio"]
             return "memory_ratio", values if values else {}
 
         # T11: Quality Neutrality - multi-engine cosine similarity
@@ -1874,7 +1962,9 @@ class TurboQuantFacade:
             values = {}
             for engine, metrics in details.items():
                 if isinstance(metrics, dict) and "cosine_similarity" in metrics:
-                    values[engine] = metrics["cosine_similarity"]
+                    values[f"quality_neutrality_cosine_{engine}_v1"] = metrics[
+                        "cosine_similarity"
+                    ]
             return "quality_neutrality_cosine", values if values else {}
 
         # T12: Low-Bit Degradation - multi-engine cosine similarity
@@ -1882,7 +1972,7 @@ class TurboQuantFacade:
             values = {}
             for engine, metrics in details.items():
                 if isinstance(metrics, dict) and "cosine_similarity" in metrics:
-                    values[engine] = metrics["cosine_similarity"]
+                    values[f"low_bit_cosine_{engine}_v1"] = metrics["cosine_similarity"]
             return "low_bit_cosine", values if values else {}
 
         # T13: Needle-in-a-Haystack - multi-engine accuracy
@@ -1890,7 +1980,7 @@ class TurboQuantFacade:
             values = {}
             for engine, metrics in details.items():
                 if isinstance(metrics, dict) and "accuracy" in metrics:
-                    values[engine] = metrics["accuracy"]
+                    values[f"niah_accuracy_{engine}_v1"] = metrics["accuracy"]
             return "niah_accuracy", values if values else {}
 
         # T14: PQ Comparison - multi-engine recall
@@ -1902,7 +1992,9 @@ class TurboQuantFacade:
                     if engine == "pq_baseline":
                         pq_baseline = metrics.get("recall_at_10")
                     elif "turboquant_recall_at_10" in metrics:
-                        values[engine] = metrics["turboquant_recall_at_10"]
+                        values[f"recall_at_10_cpu_v1"] = metrics[
+                            "turboquant_recall_at_10"
+                        ]
             if pq_baseline is not None:
                 values["pq_baseline"] = pq_baseline
             return "recall_at_10", values if values else {}
@@ -1916,7 +2008,7 @@ class TurboQuantFacade:
                     tq_time = metrics.get("turboquant_index_time_ms")
                     if tq_time is not None:
                         # 엔진별 TurboQuant indexing time
-                        values[engine] = tq_time
+                        values[f"indexing_time_ms_{engine}_v1"] = tq_time
                     if (
                         pq_baseline is None
                         and metrics.get("pq_index_time_ms") is not None

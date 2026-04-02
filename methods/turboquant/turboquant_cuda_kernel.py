@@ -22,13 +22,11 @@ from .common_utils import generate_rotation_matrix_torch as generate_rotation_ma
 from .common_utils import generate_qjl_matrix_torch as generate_qjl_matrix
 
 
-# CRITICAL: Preload CUDA libraries using ctypes before torch import
-# This is necessary because LD_LIBRARY_PATH changes don't affect already-loaded libraries
-def _preload_cuda_libraries():
-    """Manually preload CUDA libraries using ctypes before torch import.
+def _verify_cuda_library_paths():
+    """Verify CUDA library paths exist without loading them.
 
     Returns:
-        str: Successfully loaded PyTorch lib path, or None if all failed
+        str: Verified PyTorch lib path, or None if all failed
     """
     # Explicit priority order: py310 environment first, then auto-discover
     explicit_py310_path = (
@@ -48,51 +46,21 @@ def _preload_cuda_libraries():
     )
     torch_lib_candidates.extend(auto_discovered_paths)
 
-    # Try each candidate in order until one succeeds
-    success_path = None
+    # Verify library paths without loading - ctypes.CDLL causes c10::Error
     for torch_lib in torch_lib_candidates:
-        # CRITICAL: Set LD_LIBRARY_PATH FIRST before loading any libraries
-        # This ensures the dynamic linker can find libc10.so when loading CUDA kernels
-        ld_library_path = os.environ.get("LD_LIBRARY_PATH", "")
-        if torch_lib not in ld_library_path:
-            os.environ["LD_LIBRARY_PATH"] = torch_lib + (
-                ":" + ld_library_path if ld_library_path else ""
-            )
-            print(f"[INFO] Set LD_LIBRARY_PATH to include: {torch_lib}")
-
-        # Preload key CUDA libraries directly from torch/lib
-        # libc10.so is required by all other CUDA libs
         libc10_path = os.path.join(torch_lib, "libc10.so")
         libtorch_python_path = os.path.join(torch_lib, "libtorch_python.so")
 
-        # Try loading libc10.so
-        if os.path.exists(libc10_path):
-            try:
-                ctypes.CDLL(libc10_path, mode=ctypes.RTLD_GLOBAL)
-                print(f"[INFO] Loaded libc10.so from {torch_lib}")
-            except OSError as e:
-                print(f"[WARN] Failed to load libc10.so from {torch_lib}: {e}")
-                continue
+        if os.path.exists(libc10_path) and os.path.exists(libtorch_python_path):
+            print(f"[INFO] Verified CUDA library path: {torch_lib}")
+            return torch_lib
 
-        # Try loading libtorch_python.so
-        if os.path.exists(libtorch_python_path):
-            try:
-                ctypes.CDLL(libtorch_python_path, mode=ctypes.RTLD_GLOBAL)
-                print(f"[INFO] Loaded libtorch_python.so from {torch_lib}")
-            except OSError as e:
-                print(f"[WARN] Failed to load libtorch_python.so from {torch_lib}: {e}")
-                continue
+        print(f"[WARN] CUDA libraries not found in {torch_lib}")
 
-        # Success! Record the path
-        success_path = torch_lib
-        print(f"[INFO] Successfully preloaded CUDA libraries from: {torch_lib}")
-        break  # Only need one successful path
-
-    return success_path
+    return None
 
 
-# Preload CUDA libraries before torch import
-_preload_cuda_libraries()
+_verify_cuda_library_paths()
 
 # Now import torch and other dependencies
 import torch

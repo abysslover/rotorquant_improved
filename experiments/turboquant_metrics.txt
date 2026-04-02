@@ -1,6 +1,6 @@
 # TurboQuant Experimental Results
 
-**Date**: 2026-04-02 01:38:03
+**Date**: 2026-04-02 10:03:22
 **Environment**: Python 3.10.11, PyTorch 2.8.0+cu129
 
 ## Environment Information
@@ -30,8 +30,8 @@
 | T1 | Lloyd-Max Codebook | PASS | Codebook properties verified for all configs |
 | T2 | MSE Distortion | PASS | MSE distortion verified across engines |
 | T3 | Inner Product (QJL) | PASS | Inner product unbiasedness verified |
-| T4 | KV Cache Compression | PASS | Compression ratios calculated across engines |
-| T5 | Asymmetric Bits | PASS | Asymmetric bit allocation checked across engines |
+| T4 | KV Cache Compression | PASS | Compression ratios calculated across methods and engines |
+| T5 | Asymmetric Bits | FAIL | Asymmetric bit allocation checked across methods and engines |
 | T6 | GQA Support | PASS | GQA working for Keys and Values |
 | T7 | Cross-Engine Consistency | PASS | Cross-engine consistency verified |
 | T8 | QJL Removal | PASS | QJL fields correctly removed |
@@ -100,30 +100,30 @@
 **Details**:
 
 - `cpu`:
-  - 1: {'mse': 0.35926491022109985, 'theory_bound': 0.6801747615878316, 'ratio': 0.5281950029760221, 'status': 'OK'}
-  - 2: {'mse': 0.11608395725488663, 'theory_bound': 0.1700436903969579, 'ratio': 0.6826713592482898, 'status': 'OK'}
-  - 3: {'mse': 0.03411797434091568, 'theory_bound': 0.04251092259923948, 'ratio': 0.8025696045826597, 'status': 'OK'}
-  - 4: {'mse': 0.009255358017981052, 'theory_bound': 0.01062773064980987, 'ratio': 0.8708687040489337, 'status': 'OK'}
+  - 1: {'mse': 0.35931462049484253, 'theory_bound': 0.6801747615878316, 'ratio': 0.5282680875368585, 'status': 'OK'}
+  - 2: {'mse': 0.11608940362930298, 'theory_bound': 0.1700436903969579, 'ratio': 0.6827033885132607, 'status': 'OK'}
+  - 3: {'mse': 0.033732764422893524, 'theory_bound': 0.04251092259923948, 'ratio': 0.7935081706153563, 'status': 'OK'}
+  - 4: {'mse': 0.009222139604389668, 'theory_bound': 0.01062773064980987, 'ratio': 0.8677430684183413, 'status': 'OK'}
 - `torch_cpu`:
-  - 1: {'mse': 0.3617768883705139, 'theory_bound': 0.6801747615878316, 'ratio': 0.5318881393451957, 'status': 'OK'}
-  - 2: {'mse': 0.11552368104457855, 'theory_bound': 0.1700436903969579, 'ratio': 0.6793764636305805, 'status': 'OK'}
-  - 3: {'mse': 0.03424176946282387, 'theory_bound': 0.04251092259923948, 'ratio': 0.8054816825696569, 'status': 'OK'}
-  - 4: {'mse': 0.00932318065315485, 'theory_bound': 0.01062773064980987, 'ratio': 0.8772503707855677, 'status': 'OK'}
+  - 1: {'mse': 0.362178236246109, 'theory_bound': 0.6801747615878316, 'ratio': 0.5324782051610137, 'status': 'OK'}
+  - 2: {'mse': 0.11639813333749771, 'theory_bound': 0.1700436903969579, 'ratio': 0.6845189790092916, 'status': 'OK'}
+  - 3: {'mse': 0.03410222753882408, 'theory_bound': 0.04251092259923948, 'ratio': 0.8021991867905067, 'status': 'OK'}
+  - 4: {'mse': 0.009446369484066963, 'theory_bound': 0.01062773064980987, 'ratio': 0.8888416347130476, 'status': 'OK'}
 - `cuda_kernel`:
-  - 1: {'mse': 0.3620340824127197, 'theory_bound': 0.6801747615878316, 'ratio': 0.5322662686977249, 'status': 'OK'}
-  - 2: {'mse': 0.1150440126657486, 'theory_bound': 0.1700436903969579, 'ratio': 0.6765556098975769, 'status': 'OK'}
-  - 3: {'mse': 0.03400665521621704, 'theory_bound': 0.04251092259923948, 'ratio': 0.7999510040467911, 'status': 'OK'}
-  - 4: {'mse': 0.009373024106025696, 'theory_bound': 0.01062773064980987, 'ratio': 0.8819403139647107, 'status': 'OK'}
+  - 1: {'mse': 0.36047542095184326, 'theory_bound': 0.6801747615878316, 'ratio': 0.5299747084268941, 'status': 'OK'}
+  - 2: {'mse': 0.11560451239347458, 'theory_bound': 0.1700436903969579, 'ratio': 0.6798518199858049, 'status': 'OK'}
+  - 3: {'mse': 0.0340416356921196, 'theory_bound': 0.04251092259923948, 'ratio': 0.8007738625914603, 'status': 'OK'}
+  - 4: {'mse': 0.009368353523314, 'theory_bound': 0.01062773064980987, 'ratio': 0.8815008426546451, 'status': 'OK'}
 - `torch_cuda`:
-  - 1: {'mse': 0.3611786961555481, 'theory_bound': 0.6801747615878316, 'ratio': 0.5310086709368571, 'status': 'OK'}
-  - 2: {'mse': 0.11627197265625, 'theory_bound': 0.1700436903969579, 'ratio': 0.6837770480328866, 'status': 'OK'}
-  - 3: {'mse': 0.03413960337638855, 'theory_bound': 0.04251092259923948, 'ratio': 0.8030783923047417, 'status': 'OK'}
-  - 4: {'mse': 0.009287060238420963, 'theory_bound': 0.01062773064980987, 'ratio': 0.8738516758125696, 'status': 'OK'}
+  - 1: {'mse': 0.36115914583206177, 'theory_bound': 0.6801747615878316, 'ratio': 0.5309799278481828, 'status': 'OK'}
+  - 2: {'mse': 0.11592986434698105, 'theory_bound': 0.1700436903969579, 'ratio': 0.6817651632727387, 'status': 'OK'}
+  - 3: {'mse': 0.033779531717300415, 'theory_bound': 0.04251092259923948, 'ratio': 0.7946082948080909, 'status': 'OK'}
+  - 4: {'mse': 0.009391908533871174, 'theory_bound': 0.01062773064980987, 'ratio': 0.8837172152118097, 'status': 'OK'}
 - `triton`:
-  - 1: {'mse': 0.361282080411911, 'theory_bound': 0.6801747615878316, 'ratio': 0.5311606675444959, 'status': 'OK'}
-  - 2: {'mse': 0.11518997699022293, 'theory_bound': 0.1700436903969579, 'ratio': 0.6774140029619334, 'status': 'OK'}
-  - 3: {'mse': 0.03411050885915756, 'theory_bound': 0.04251092259923948, 'ratio': 0.8023939913213692, 'status': 'OK'}
-  - 4: {'mse': 0.009401609189808369, 'theory_bound': 0.01062773064980987, 'ratio': 0.8846299835399539, 'status': 'OK'}
+  - 1: {'mse': 0.36121413111686707, 'theory_bound': 0.6801747615878316, 'ratio': 0.5310607677850792, 'status': 'OK'}
+  - 2: {'mse': 0.11549761146306992, 'theory_bound': 0.1700436903969579, 'ratio': 0.6792231525524229, 'status': 'OK'}
+  - 3: {'mse': 0.03408921882510185, 'theory_bound': 0.04251092259923948, 'ratio': 0.801893178053767, 'status': 'OK'}
+  - 4: {'mse': 0.009262053295969963, 'theory_bound': 0.01062773064980987, 'ratio': 0.8714986859528343, 'status': 'OK'}
 
 ### T3: Inner Product (QJL)
 
@@ -134,93 +134,61 @@
 **Details**:
 
 - `cpu`:
-  - 2: {'bias': 0.0020569481421262026, 'rmse': 0.066827371395037, 'correlation': 0.7992555499076843}
-  - 3: {'bias': 0.00036255046143196523, 'rmse': 0.03773469535324398, 'correlation': 0.921017050743103}
-  - 4: {'bias': 0.000940563390031457, 'rmse': 0.02062854042990254, 'correlation': 0.9736934304237366}
+  - 2: {'bias': -0.001493921154178679, 'rmse': 0.06541578301677772, 'correlation': 0.7972959876060486}
+  - 3: {'bias': -0.0006799427210353315, 'rmse': 0.037052869127111074, 'correlation': 0.9227719902992249}
+  - 4: {'bias': 0.00024009945627767593, 'rmse': 0.02054913223988982, 'correlation': 0.9753474593162537}
 - `torch_cpu`:
-  - 2: {'bias': -0.0006891567027196288, 'rmse': 0.06541183590888977, 'correlation': 0.8025479912757874}
-  - 3: {'bias': -0.000763856980483979, 'rmse': 0.036265648901462555, 'correlation': 0.9269948601722717}
-  - 4: {'bias': 0.0006331535987555981, 'rmse': 0.020152108743786812, 'correlation': 0.9747005105018616}
+  - 2: {'bias': -0.0010841136099770665, 'rmse': 0.06565019488334656, 'correlation': 0.8021070957183838}
+  - 3: {'bias': 0.001440826104953885, 'rmse': 0.03609662875533104, 'correlation': 0.9281378388404846}
+  - 4: {'bias': 0.00041597645031288266, 'rmse': 0.019998762756586075, 'correlation': 0.9755348563194275}
 - `cuda_kernel`:
-  - 2: {'bias': 0.00032905381522141397, 'rmse': 0.06473621726036072, 'correlation': 0.8088340163230896}
-  - 3: {'bias': -0.00012031020742142573, 'rmse': 0.03689971938729286, 'correlation': 0.9231349229812622}
-  - 4: {'bias': 0.00030295635224319994, 'rmse': 0.019908053800463676, 'correlation': 0.9751012921333313}
+  - 2: {'bias': -0.0020779597107321024, 'rmse': 0.06541194021701813, 'correlation': 0.7994534969329834}
+  - 3: {'bias': -1.8547088984632865e-05, 'rmse': 0.03689327836036682, 'correlation': 0.921053409576416}
+  - 4: {'bias': -0.0002842601388692856, 'rmse': 0.019629327580332756, 'correlation': 0.9763113260269165}
 - `torch_cuda`:
-  - 2: {'bias': -0.000800994923338294, 'rmse': 0.06575549393892288, 'correlation': 0.8034235239028931}
-  - 3: {'bias': -0.0003094767453148961, 'rmse': 0.03675345703959465, 'correlation': 0.9224900603294373}
-  - 4: {'bias': 0.001156021375209093, 'rmse': 0.020068256184458733, 'correlation': 0.9749002456665039}
+  - 2: {'bias': -0.0006129347602836788, 'rmse': 0.06614536046981812, 'correlation': 0.8050782680511475}
+  - 3: {'bias': -0.00021883525187149644, 'rmse': 0.036449991166591644, 'correlation': 0.9234147071838379}
+  - 4: {'bias': 0.0005010284367017448, 'rmse': 0.01986229605972767, 'correlation': 0.9760996699333191}
 - `triton`:
-  - 2: {'bias': -0.0006181259523145854, 'rmse': 0.0668739452958107, 'correlation': 0.8002800345420837}
-  - 3: {'bias': -0.0011372612789273262, 'rmse': 0.03730904683470726, 'correlation': 0.923634946346283}
-  - 4: {'bias': 0.00078534334897995, 'rmse': 0.020384902134537697, 'correlation': 0.9756125807762146}
+  - 2: {'bias': 0.0026063439436256886, 'rmse': 0.0639844611287117, 'correlation': 0.8048478960990906}
+  - 3: {'bias': 0.0006460153963416815, 'rmse': 0.0361984483897686, 'correlation': 0.9244227409362793}
+  - 4: {'bias': 0.00012325543502811342, 'rmse': 0.020418822765350342, 'correlation': 0.9736685752868652}
 
 ### T4: KV Cache Compression
 
 **Status**: PASS
 
-**Message**: Compression ratios calculated across engines
+**Message**: Compression ratios calculated across methods and engines
 
 **Details**:
 
-- `cpu`:
-  - 2: {'compression_ratio': 8.0, 'compressed_kb': 64.0, 'fp16_kb': 512.0, 'expected_ratio': 8.0}
-  - 3: {'compression_ratio': 5.333333333333333, 'compressed_kb': 96.0, 'fp16_kb': 512.0, 'expected_ratio': 5.333333333333333}
-  - 4: {'compression_ratio': 4.0, 'compressed_kb': 128.0, 'fp16_kb': 512.0, 'expected_ratio': 4.0}
-- `torch_cpu`:
-  - 2: {'compression_ratio': 8.0, 'compressed_kb': 64.0, 'fp16_kb': 512.0, 'expected_ratio': 8.0}
-  - 3: {'compression_ratio': 5.333333333333333, 'compressed_kb': 96.0, 'fp16_kb': 512.0, 'expected_ratio': 5.333333333333333}
-  - 4: {'compression_ratio': 4.0, 'compressed_kb': 128.0, 'fp16_kb': 512.0, 'expected_ratio': 4.0}
-- `cuda_kernel`:
-  - 2: {'compression_ratio': 8.0, 'compressed_kb': 64.0, 'fp16_kb': 512.0, 'expected_ratio': 8.0}
-  - 3: {'compression_ratio': 5.333333333333333, 'compressed_kb': 96.0, 'fp16_kb': 512.0, 'expected_ratio': 5.333333333333333}
-  - 4: {'compression_ratio': 4.0, 'compressed_kb': 128.0, 'fp16_kb': 512.0, 'expected_ratio': 4.0}
-- `torch_cuda`:
-  - 2: {'compression_ratio': 8.0, 'compressed_kb': 64.0, 'fp16_kb': 512.0, 'expected_ratio': 8.0}
-  - 3: {'compression_ratio': 5.333333333333333, 'compressed_kb': 96.0, 'fp16_kb': 512.0, 'expected_ratio': 5.333333333333333}
-  - 4: {'compression_ratio': 4.0, 'compressed_kb': 128.0, 'fp16_kb': 512.0, 'expected_ratio': 4.0}
-- `triton`:
-  - 2: {'compression_ratio': 8.0, 'compressed_kb': 64.0, 'fp16_kb': 512.0, 'expected_ratio': 8.0}
-  - 3: {'compression_ratio': 5.333333333333333, 'compressed_kb': 96.0, 'fp16_kb': 512.0, 'expected_ratio': 5.333333333333333}
-  - 4: {'compression_ratio': 4.0, 'compressed_kb': 128.0, 'fp16_kb': 512.0, 'expected_ratio': 4.0}
+- `turboquant`:
+  - cpu: {'2': {'compression_ratio': 8.0, 'compressed_kb': 64.0, 'fp16_kb': 512.0, 'expected_ratio': 8.0}, '3': {'compression_ratio': 5.333333333333333, 'compressed_kb': 96.0, 'fp16_kb': 512.0, 'expected_ratio': 5.333333333333333}, '4': {'compression_ratio': 4.0, 'compressed_kb': 128.0, 'fp16_kb': 512.0, 'expected_ratio': 4.0}}
+  - torch_cpu: {'2': {'compression_ratio': 8.0, 'compressed_kb': 64.0, 'fp16_kb': 512.0, 'expected_ratio': 8.0}, '3': {'compression_ratio': 5.333333333333333, 'compressed_kb': 96.0, 'fp16_kb': 512.0, 'expected_ratio': 5.333333333333333}, '4': {'compression_ratio': 4.0, 'compressed_kb': 128.0, 'fp16_kb': 512.0, 'expected_ratio': 4.0}}
+  - torch_cuda: {'2': {'compression_ratio': 8.0, 'compressed_kb': 64.0, 'fp16_kb': 512.0, 'expected_ratio': 8.0}, '3': {'compression_ratio': 5.333333333333333, 'compressed_kb': 96.0, 'fp16_kb': 512.0, 'expected_ratio': 5.333333333333333}, '4': {'compression_ratio': 4.0, 'compressed_kb': 128.0, 'fp16_kb': 512.0, 'expected_ratio': 4.0}}
+  - cuda_kernel: {'2': {'compression_ratio': 8.0, 'compressed_kb': 64.0, 'fp16_kb': 512.0, 'expected_ratio': 8.0}, '3': {'compression_ratio': 5.333333333333333, 'compressed_kb': 96.0, 'fp16_kb': 512.0, 'expected_ratio': 5.333333333333333}, '4': {'compression_ratio': 4.0, 'compressed_kb': 128.0, 'fp16_kb': 512.0, 'expected_ratio': 4.0}}
+  - triton: {'2': {'compression_ratio': 8.0, 'compressed_kb': 64.0, 'fp16_kb': 512.0, 'expected_ratio': 8.0}, '3': {'compression_ratio': 5.333333333333333, 'compressed_kb': 96.0, 'fp16_kb': 512.0, 'expected_ratio': 5.333333333333333}, '4': {'compression_ratio': 4.0, 'compressed_kb': 128.0, 'fp16_kb': 512.0, 'expected_ratio': 4.0}}
+- `turboquant_v3`:
+  - torch_cpu: {'2': {'compression_ratio': 3.3795379537953796, 'compressed_kb': 151.5, 'fp16_kb': 512.0, 'expected_ratio': 8.0}, '3': {'compression_ratio': 3.3795379537953796, 'compressed_kb': 151.5, 'fp16_kb': 512.0, 'expected_ratio': 5.333333333333333}, '4': {'compression_ratio': 3.3795379537953796, 'compressed_kb': 151.5, 'fp16_kb': 512.0, 'expected_ratio': 4.0}}
+  - torch_cuda: {'2': {'compression_ratio': 3.3795379537953796, 'compressed_kb': 151.5, 'fp16_kb': 512.0, 'expected_ratio': 8.0}, '3': {'compression_ratio': 3.3795379537953796, 'compressed_kb': 151.5, 'fp16_kb': 512.0, 'expected_ratio': 5.333333333333333}, '4': {'compression_ratio': 3.3795379537953796, 'compressed_kb': 151.5, 'fp16_kb': 512.0, 'expected_ratio': 4.0}}
 
 ### T5: Asymmetric Bits
 
-**Status**: PASS
+**Status**: FAIL
 
-**Message**: Asymmetric bit allocation checked across engines
+**Message**: Asymmetric bit allocation checked across methods and engines
 
 **Details**:
 
-- `cpu`:
-  - actual_bits: 76800
-  - expected_bits: 76800
-  - compression_ratio: 5.333333333333333
-  - fp16_bits: 409600
-  - status: OK
-- `torch_cpu`:
-  - actual_bits: 76800
-  - expected_bits: 76800
-  - compression_ratio: 5.333333333333333
-  - fp16_bits: 409600
-  - status: OK
-- `cuda_kernel`:
-  - actual_bits: 76800
-  - expected_bits: 76800
-  - compression_ratio: 5.333333333333333
-  - fp16_bits: 409600
-  - status: OK
-- `torch_cuda`:
-  - actual_bits: 76800
-  - expected_bits: 76800
-  - compression_ratio: 5.333333333333333
-  - fp16_bits: 409600
-  - status: OK
-- `triton`:
-  - actual_bits: 76800
-  - expected_bits: 76800
-  - compression_ratio: 5.333333333333333
-  - fp16_bits: 409600
-  - status: OK
+- `turboquant`:
+  - cpu: {'actual_bits': 76800, 'expected_bits': 76800, 'compression_ratio': 5.333333333333333, 'fp16_bits': 409600, 'status': 'OK'}
+  - torch_cpu: {'actual_bits': 76800, 'expected_bits': 76800, 'compression_ratio': 5.333333333333333, 'fp16_bits': 409600, 'status': 'OK'}
+  - torch_cuda: {'actual_bits': 76800, 'expected_bits': 76800, 'compression_ratio': 5.333333333333333, 'fp16_bits': 409600, 'status': 'OK'}
+  - cuda_kernel: {'actual_bits': 76800, 'expected_bits': 76800, 'compression_ratio': 5.333333333333333, 'fp16_bits': 409600, 'status': 'OK'}
+  - triton: {'actual_bits': 76800, 'expected_bits': 76800, 'compression_ratio': 5.333333333333333, 'fp16_bits': 409600, 'status': 'OK'}
+- `turboquant_v3`:
+  - torch_cpu: {'actual_bits': 409600.0, 'expected_bits': 76800, 'compression_ratio': 1.0, 'fp16_bits': 409600.0, 'status': 'MISMATCH'}
+  - torch_cuda: {'actual_bits': 409600.0, 'expected_bits': 76800, 'compression_ratio': 1.0, 'fp16_bits': 409600.0, 'status': 'MISMATCH'}
 
 ### T6: GQA Support
 
@@ -245,11 +213,11 @@
 **Details**:
 
 - `mse_results`:
-  - cpu: 0.033813513815402985
-  - torch_cpu: 0.032942093908786774
-  - torch_cuda: 0.032942090183496475
-  - cuda_kernel: 0.032942090183496475
-  - triton: 0.032942090183496475
+  - cpu: 0.03296254575252533
+  - torch_cpu: 0.03376448526978493
+  - torch_cuda: 0.03376448154449463
+  - cuda_kernel: 0.03376448154449463
+  - triton: 0.03376448154449463
 - `memory_results`:
   - cpu: 3840
   - torch_cpu: 3840
@@ -281,30 +249,30 @@
 **Details**:
 
 - `cpu`:
-  - quantization_latency_ms: 88.75240399502218
-  - attention_latency_ms: 3.3255866495892406
-  - fp16_latency_ms: 3.329296838492155
-  - overhead_vs_fp16: 0.9988855938407117
+  - quantization_latency_ms: 89.81120171956718
+  - attention_latency_ms: 3.8962124288082123
+  - fp16_latency_ms: 3.8999228295870125
+  - overhead_vs_fp16: 0.9990485963592277
 - `torch_cpu`:
-  - quantization_latency_ms: 13.778660399839282
-  - attention_latency_ms: 1.6681870282627642
-  - fp16_latency_ms: 1.6714612883515656
-  - overhead_vs_fp16: 0.9980410793168709
+  - quantization_latency_ms: 13.736209995113313
+  - attention_latency_ms: 1.633669149596244
+  - fp16_latency_ms: 1.6370342997834086
+  - overhead_vs_fp16: 0.9979443618330968
 - `cuda_kernel`:
-  - quantization_latency_ms: 0.13015198055654764
-  - attention_latency_ms: 0.06971864029765129
-  - fp16_latency_ms: 0.06988665089011192
-  - overhead_vs_fp16: 0.9975959558753958
+  - quantization_latency_ms: 0.11820001527667046
+  - attention_latency_ms: 0.07025403203442693
+  - fp16_latency_ms: 0.07041594013571739
+  - overhead_vs_fp16: 0.9977006896310919
 - `torch_cuda`:
-  - quantization_latency_ms: 0.0747427111491561
-  - attention_latency_ms: 0.06127714877948164
-  - fp16_latency_ms: 0.061448169872164726
-  - overhead_vs_fp16: 0.9972168236574194
+  - quantization_latency_ms: 0.07470292039215565
+  - attention_latency_ms: 0.05993806989863515
+  - fp16_latency_ms: 0.060100380796939135
+  - overhead_vs_fp16: 0.9972993366073273
 - `triton`:
-  - quantization_latency_ms: 0.12036061380058527
-  - attention_latency_ms: 0.061225851532071836
-  - fp16_latency_ms: 0.06138816010206938
-  - overhead_vs_fp16: 0.9973560281049689
+  - quantization_latency_ms: 0.1185435801744461
+  - attention_latency_ms: 0.06070330971851945
+  - fp16_latency_ms: 0.06086832843720913
+  - overhead_vs_fp16: 0.9972889231078539
 
 ### T10: Memory at Scale
 
@@ -349,9 +317,9 @@
 **Details**:
 
 - `effective_bits`: 3.5
-- `mse`: 0.00014525359438266605
-- `cosine_similarity`: 0.998733639717102
-- `correlation`: 0.9914732575416565
+- `mse`: 0.0001445239904569462
+- `cosine_similarity`: 0.998785138130188
+- `correlation`: 0.9915235042572021
 - `n_vectors`: 10000
 
 ### T12: Low-Bit Degradation (2.5 bits)
@@ -363,9 +331,9 @@
 **Details**:
 
 - `effective_bits`: 2.5
-- `mse`: 0.0005211000679992139
-- `cosine_similarity`: 0.9746431112289429
-- `correlation`: 0.9691264629364014
+- `mse`: 0.000522803224157542
+- `cosine_similarity`: 0.9745323657989502
+- `correlation`: 0.9689938426017761
 - `n_vectors`: 10000
 
 ### T13: Needle-in-a-Haystack
@@ -379,20 +347,20 @@
 - `8192`:
   - needle_pos: 4096
   - retrieved: True
-  - needle_score: 1.6903373003005981
-  - max_score: 1.6903373003005981
+  - needle_score: 1.709470272064209
+  - max_score: 1.709470272064209
   - retrieved_idx: 4096
 - `16384`:
   - needle_pos: 8192
   - retrieved: True
-  - needle_score: 1.7619565725326538
-  - max_score: 1.7619565725326538
+  - needle_score: 1.735403060913086
+  - max_score: 1.735403060913086
   - retrieved_idx: 8192
 - `32768`:
   - needle_pos: 16384
   - retrieved: True
-  - needle_score: 1.7631727457046509
-  - max_score: 1.7631727457046509
+  - needle_score: 1.7599009275436401
+  - max_score: 1.7599009275436401
   - retrieved_idx: 16384
 - `accuracy`: 1.0
 
@@ -405,7 +373,7 @@
 **Details**:
 
 - `turboquant_recall_at_10`: 1.0
-- `pq_recall_at_10`: 0.0778
+- `pq_recall_at_10`: 0.0742
 - `n_vectors`: 5000
 - `n_queries`: 500
 - `bits`: 3
@@ -419,33 +387,33 @@
 **Details**:
 
 - `cpu`:
-  - turboquant_index_time_ms: 103.69235603138804
-  - pq_index_time_ms: 226.96475987322628
-  - speedup_factor: 2.188828266227486
+  - turboquant_index_time_ms: 105.87508883327246
+  - pq_index_time_ms: 243.88063699007034
+  - speedup_factor: 2.3034751581094124
   - n_vectors: 10000
   - bits: 3
 - `torch_cpu`:
-  - turboquant_index_time_ms: 15.55388793349266
-  - pq_index_time_ms: 226.96475987322628
-  - speedup_factor: 14.592156047652637
+  - turboquant_index_time_ms: 15.775839099660516
+  - pq_index_time_ms: 243.88063699007034
+  - speedup_factor: 15.459122994942213
   - n_vectors: 10000
   - bits: 3
 - `cuda_kernel`:
-  - turboquant_index_time_ms: 2.763492986559868
-  - pq_index_time_ms: 226.96475987322628
-  - speedup_factor: 82.12966740898561
+  - turboquant_index_time_ms: 0.19841385073959827
+  - pq_index_time_ms: 243.88063699007034
+  - speedup_factor: 1229.1512718542187
   - n_vectors: 10000
   - bits: 3
 - `torch_cuda`:
-  - turboquant_index_time_ms: 0.12661796063184738
-  - pq_index_time_ms: 226.96475987322628
-  - speedup_factor: 1792.5163123827738
+  - turboquant_index_time_ms: 0.11191098019480705
+  - pq_index_time_ms: 243.88063699007034
+  - speedup_factor: 2179.237788513151
   - n_vectors: 10000
   - bits: 3
 - `triton`:
-  - turboquant_index_time_ms: 0.19821408204734325
-  - pq_index_time_ms: 226.96475987322628
-  - speedup_factor: 1145.048613745899
+  - turboquant_index_time_ms: 0.1991158351302147
+  - pq_index_time_ms: 243.88063699007034
+  - speedup_factor: 1224.817889700139
   - n_vectors: 10000
   - bits: 3
 
@@ -474,11 +442,11 @@ No specific recommendations.
 ## Summary
 
 - **Total Tests**: 16
-- **Passed**: 15
+- **Passed**: 14
 - **Warnings**: 1
-- **Failed**: 0
+- **Failed**: 1
 - **Skipped**: 0
 
-### Final Assessment: ✅ PRODUCTION READY
+### Final Assessment: ❌ NOT READY FOR PRODUCTION
 
-Core functionality verified. Minor issues documented.
+Critical failures detected (1). Fix before production use.

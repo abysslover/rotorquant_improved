@@ -447,6 +447,9 @@ def register_all_methods():
     from .turboquant.turboquant_cpu import TurboQuantKVCache as TQNumpyKV
     from .turboquant.turboquant_triton import TurboQuantKVCache as TQTritonKV
 
+    # TurboQuant V3 KV Cache adapter (supports torch_cpu, torch_cuda via python backend)
+    from .turboquant.turboquant_v3_kvcache import TurboQuantV3KVCache
+
     TurboQuantFactory.register(
         "turboquant",
         "python",
@@ -481,6 +484,14 @@ def register_all_methods():
             prod_cls=TQTritonProd,
             kvcache_cls=TQTritonKV,
         )
+
+    # TurboQuant V3: PyTorch-only (torch_cpu, torch_cuda)
+    TurboQuantFactory.register(
+        "turboquant_v3",
+        "python",
+        kvcache_cls=TurboQuantV3KVCache,
+    )
+
     TurboQuantFactory.register(
         "planarquant", "triton", quantizer_cls=PQTritonMSE, prod_cls=PQTritonProd
     )
@@ -531,18 +542,19 @@ class TurboQuantProdFactory:
         - triton -> backend "triton" with device="cuda"
     """
 
+    # Single Source of Truth: Engine-to-backend and Engine-to-device mappings
     _ENGINE_TO_BACKEND = {
-        "cpu": "numpy",
-        "torch_cpu": "python",
-        "torch_cuda": "python",
-        "cuda_kernel": "cuda",
-        "triton": "triton",
+        "cpu": "numpy",  # Pure NumPy/SciPy (CPU)
+        "torch_cpu": "python",  # PyTorch CPU
+        "torch_cuda": "python",  # PyTorch CUDA (same code as torch_cpu, different device)
+        "cuda_kernel": "cuda",  # Pre-compiled CUDA extensions
+        "triton": "triton",  # Triton JIT kernels
     }
 
     _ENGINE_TO_DEVICE = {
         "cpu": "cpu",
         "torch_cpu": "cpu",
-        "torch_cuda": "cuda",
+        "torch_cuda": "cuda",  # Same code as torch_cpu, device=cuda
         "cuda_kernel": "cuda",
         "triton": "cuda",
     }
